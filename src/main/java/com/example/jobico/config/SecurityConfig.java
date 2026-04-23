@@ -35,14 +35,19 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // Public — OTP login (users) + admin login/register/forgot-password/reset-password
-                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers(
+                		  "/api/auth/admin/login",
+                		    "/api/auth/admin/register",
+                		    "/api/auth/admin/forgot-password",
+                		    "/api/auth/admin/reset-password"
+                		).permitAll()
                 // Admin-only
                 .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
-                // Candidate endpoints
+                
                 .requestMatchers("/api/candidates/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
-                // File upload/download
+                
                 .requestMatchers("/api/resume/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+                
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

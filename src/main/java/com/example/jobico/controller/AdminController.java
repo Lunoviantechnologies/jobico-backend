@@ -19,7 +19,6 @@ public class AdminController {
     @Autowired private FileService fileService;
     @Autowired private DocumentService documentService;
 
-    // ─── Candidate Listing ───────────────────────────────────────────────────
 
     @GetMapping("/candidates/all")
     public ResponseEntity<Page<CandidateResponse>> getAllCandidates(

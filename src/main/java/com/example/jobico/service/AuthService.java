@@ -45,16 +45,16 @@ public class AuthService {
      * Creates a default admin (admin@jobico.com / admin@123) on first run
      * if no admin exists yet. Safe to leave in production — only runs once.
      */
-//    @PostConstruct
-//    public void seedDefaultAdmin() {
-//        if (!adminRepository.existsByEmail("admin@jobico.com")) {
-//            Admin admin = new Admin();
-//            admin.setEmail("admin@jobico.com");
-//            admin.setPassword(passwordEncoder.encode("admin@123"));
-//            adminRepository.save(admin);
-//            System.out.println("[Jobico] Default admin seeded: admin@jobico.com / admin@123");
-//        }
-//    }
+    @PostConstruct
+    public void seedDefaultAdmin() {
+        if (!adminRepository.existsByEmail("admin@jobico.com")) {
+            Admin admin = new Admin();
+            admin.setEmail("admin@jobico.com");
+            admin.setPassword(passwordEncoder.encode("admin@123"));
+            adminRepository.save(admin);
+            System.out.println("[Jobico] Default admin seeded: admin@jobico.com / admin@123");
+        }
+    }
 
     // ── USER: OTP Login ───────────────────────────────────────────────────────
 
