@@ -265,45 +265,40 @@ public class CandidateService {
         return Period.between(dob, LocalDate.now()).getYears();
     }
     public Page<CandidateResponse> getCandidates(
-            String name,
-            String skill,
-            String category,
-            String role,
-            Integer minExp,
-            Integer maxExp,
-            int page,
-            int size) {
+        String search,
+        String status,
+        String category,
+        int page,
+        int size) {
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
-        Specification<Candidate> spec = Specification.where(null);
+    Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+    Specification<Candidate> spec = Specification.where(null);
 
-        if (name != null && !name.isEmpty()) {
-            spec = spec.and((root, query, cb) ->
-                    cb.like(cb.lower(root.get("firstName")), "%" + name.toLowerCase() + "%"));
-        }
+    //  SEARCH (name + email + role)
+    if (search != null && !search.isBlank()) {
+        spec = spec.and((root, query, cb) -> cb.or(
+                cb.like(cb.lower(root.get("firstName")), "%" + search.toLowerCase() + "%"),
+                cb.like(cb.lower(root.get("surname")), "%" + search.toLowerCase() + "%"),
+                cb.like(cb.lower(root.get("email")), "%" + search.toLowerCase() + "%"),
+                cb.like(cb.lower(root.get("role")), "%" + search.toLowerCase() + "%")
+        ));
+    }
 
-        if (skill != null && !skill.isEmpty()) {
-            spec = spec.and((root, query, cb) ->
-                    cb.like(cb.lower(root.join("skills").get("skillName")),
-                            "%" + skill.toLowerCase() + "%"));
-        }
+    // STATUS FILTER
+    if (status != null && !status.isBlank()) {
+        spec = spec.and((root, query, cb) ->
+                cb.equal(root.get("status"), CandidateStatus.valueOf(status))
+        );
+    }
 
-        if (category != null && !category.isEmpty()) {
-            spec = spec.and((root, query, cb) ->
-                    cb.equal(root.get("category"), category));
-        }
+    // CATEGORY FILTER
+    if (category != null && !category.isBlank()) {
+        spec = spec.and((root, query, cb) ->
+                cb.equal(root.get("category"), category)
+        );
+    }
 
-        if (role != null && !role.isEmpty()) {
-            spec = spec.and((root, query, cb) ->
-                    cb.like(cb.lower(root.get("role")), "%" + role.toLowerCase() + "%"));
-        }
-
-        if (minExp != null && maxExp != null) {
-            spec = spec.and((root, query, cb) ->
-                    cb.between(root.get("experience"), minExp, maxExp));
-        }
-
-        return candidateRepository.findAll(spec, pageable)
-                .map(this::mapEntityToResponse);
+    return candidateRepository.findAll(spec, pageable)
+            .map(this::mapEntityToResponse);
     }
 }

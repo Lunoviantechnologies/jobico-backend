@@ -1,4 +1,4 @@
- package com.example.jobico.controller;
+package com.example.jobico.controller;
 
 import com.example.jobico.dto.*;
 import com.example.jobico.service.CandidateService;
@@ -22,17 +22,14 @@ public class AdminController {
 
     @GetMapping("/candidates/all")
     public ResponseEntity<Page<CandidateResponse>> getCandidates(
-            @RequestParam(required = false) String name,
-            @RequestParam(required = false) String skill,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) String role,
-            @RequestParam(required = false) Integer minExp,
-            @RequestParam(required = false) Integer maxExp,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
         return ResponseEntity.ok(
-                candidateService.getCandidates(name, skill, category, role, minExp, maxExp, page, size)
+            candidateService.getCandidates(search, status, category, page, size)
         );
     }
 
