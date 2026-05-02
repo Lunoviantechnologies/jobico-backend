@@ -77,6 +77,7 @@ public class EmployeeManagementService {
         r.setStatus(emp.getEmployeeStatus());
         r.setMobile(emp.getCandidate().getUser().getMobile());
         r.setEmail(emp.getCandidate().getEmail());
+        r.setSalary(emp.getSalary());
 
         // Mask bank account: show last 4 digits only, e.g. "HDFC ****4521"
         String bankName = emp.getBankName();

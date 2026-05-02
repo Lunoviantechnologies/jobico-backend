@@ -2,6 +2,7 @@ package com.example.jobico.repository;
 
 import com.example.jobico.entity.Payroll;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -11,7 +12,7 @@ import java.util.Optional;
 /**
  * UPDATED PayrollRepository — replace the existing one in your project.
  */
-public interface PayrollRepository extends JpaRepository<Payroll, Long> {
+public interface PayrollRepository extends JpaRepository<Payroll, Long>,JpaSpecificationExecutor<Payroll> {
 
     List<Payroll> findByEmployeeId(Long employeeId);
 

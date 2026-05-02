@@ -8,6 +8,7 @@ public class AuthResponse {
     private String mobile;
     private String role;
     private boolean newUser;
+    private boolean employee;
 
     public AuthResponse() {}
 
@@ -18,6 +19,7 @@ public class AuthResponse {
         this.mobile = mobile;
         this.role = role;
         this.newUser = newUser;
+        this.employee=false;
     }
 
     public String getToken() { return token; }
@@ -37,4 +39,6 @@ public class AuthResponse {
 
     public boolean isNewUser() { return newUser; }
     public void setNewUser(boolean newUser) { this.newUser = newUser; }
+    public boolean isEmployee() { return employee; }
+    public void setEmployee(boolean employee) { this.employee = employee; }
 }

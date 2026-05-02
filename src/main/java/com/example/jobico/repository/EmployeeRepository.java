@@ -10,17 +10,13 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
-/**
- * UPDATED EmployeeRepository — replace the existing one in your project.
- * Added: list all, search by name, filter by dept/status.
- */
 public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
     Optional<Employee> findByCandidateId(Long candidateId);
 
     boolean existsByCandidateId(Long candidateId);
 
-    // ── NEW: Employees page ───────────────────────────────────────
+    // NEW: Employees page
 
     Page<Employee> findAll(Pageable pageable);
 
@@ -35,7 +31,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
     @Query("SELECT e FROM Employee e WHERE LOWER(CONCAT(e.candidate.firstName, ' ', e.candidate.surname)) LIKE LOWER(CONCAT('%', :name, '%')) AND e.department = :dept")
     Page<Employee> searchByNameAndDepartment(@Param("name") String name, @Param("dept") String dept, Pageable pageable);
-
-    // Dashboard: count active employees
     long countByEmployeeStatus(EmployeeStatus status);
+    @Query("SELECT e FROM Employee e WHERE e.candidate.user.mobile = :mobile")
+    Optional<Employee> findByUserMobile(@Param("mobile") String mobile);
 }

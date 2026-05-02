@@ -26,7 +26,7 @@ public class EmailService {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd MMMM yyyy");
 
-    // ─── Generic Send ─────────────────────────────────────────────────────────
+    // ─── Generic Send 
 
     @Async
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
@@ -259,5 +259,58 @@ public class EmailService {
                 + companyName + ". Please do not reply to this email.</p></td></tr>"
 
                 + "</table></td></tr></table></body></html>";
+    }
+ // ─── Send Email with PDF Attachment ──────────────────────────────────────────
+
+    @Async
+    public void sendEmailWithPdfAttachment(String to, String subject,
+                                            String htmlBody, byte[] pdfBytes,
+                                            String pdfFilename) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(htmlBody, true);
+            helper.addAttachment(pdfFilename,
+                    new org.springframework.core.io.ByteArrayResource(pdfBytes),
+                    "application/pdf");
+            mailSender.send(message);
+        } catch (MessagingException e) {
+            System.err.println("[EmailService] Failed to send attachment email to " + to + ": " + e.getMessage());
+        }
+    }
+
+    // Email body builder
+
+    public String buildOfferLetterEmailBody(String candidateName, String role,
+                                             double salary, java.time.LocalDate joiningDate,
+                                             String company) {
+        String details =
+                "<table style='width:100%;border-collapse:collapse;margin:16px 0;'>" +
+                "<tr><td style='padding:8px;background:#f5f5f5;font-weight:bold;width:40%;'>Designation</td>" +
+                "<td style='padding:8px;'>" + role + "</td></tr>" +
+                "<tr><td style='padding:8px;background:#f5f5f5;font-weight:bold;'>Joining Date</td>" +
+                "<td style='padding:8px;'>" + DATE_FMT.format(joiningDate) + "</td></tr>" +
+                "<tr><td style='padding:8px;background:#f5f5f5;font-weight:bold;'>CTC (Annual)</td>" +
+                "<td style='padding:8px;'>&#8377; " + String.format("%,.2f", salary) + "</td></tr>" +
+                "</table>";
+        return buildHtml("Offer Letter \uD83D\uDCC4", candidateName,
+                "We are delighted to offer you the position of <b>" + role + "</b> at <b>" + company + "</b>.",
+                "Please find your <b>Offer Letter attached</b> to this email." + details +
+                "Kindly review the letter and reply with your acceptance.",
+                null, null);
+    }
+
+    public String buildExperienceLetterEmailBody(String employeeName, String role,
+                                                  String department, java.time.LocalDate joiningDate,
+                                                  String company) {
+        return buildHtml("Experience Letter \uD83D\uDCCB", employeeName,
+                "Please find your <b>Experience Letter</b> from <b>" + company + "</b> attached to this email.",
+                "Your service as <b>" + role + "</b> in the <b>" + department + "</b> department " +
+                "from <b>" + DATE_FMT.format(joiningDate) + "</b> is duly acknowledged. " +
+                "We wish you the very best in your future endeavors.",
+                null, null);
     }
 }

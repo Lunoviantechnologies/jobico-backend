@@ -9,14 +9,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import java.util.Optional;
 
 /**
  * UPDATED CandidateRepository — replace the existing one in your project.
  * Added: countByStatus, findByStatus (pageable), searchByNameAndStatus
  */
-public interface CandidateRepository extends JpaRepository<Candidate, Long> {
+public interface CandidateRepository extends JpaRepository<Candidate, Long>, JpaSpecificationExecutor<Candidate> {
 
     Optional<Candidate> findByUser_Id(Long userId); // alternative user lookup
 
@@ -43,4 +43,11 @@ public interface CandidateRepository extends JpaRepository<Candidate, Long> {
 
     @Query("SELECT c FROM Candidate c WHERE LOWER(CONCAT(c.firstName, ' ', c.surname)) LIKE LOWER(CONCAT('%', :name, '%')) AND c.status = :status")
     Page<Candidate> searchByNameAndStatus(@Param("name") String name, @Param("status") CandidateStatus status, Pageable pageable);
+    @Query("""
+    	    SELECT c FROM Candidate c 
+    	    WHERE LOWER(CONCAT(c.firstName, ' ', c.surname)) LIKE LOWER(CONCAT('%', :name, '%'))
+    	       OR LOWER(c.firstName) LIKE LOWER(CONCAT('%', :name, '%'))
+    	       OR LOWER(c.surname) LIKE LOWER(CONCAT('%', :name, '%'))
+    	""")
+    Page<Candidate> searchByFullName(@Param("name") String name, Pageable pageable);
 }

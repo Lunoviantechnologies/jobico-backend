@@ -36,13 +36,21 @@ public class SecurityConfig {
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
+                		"/api/auth/send-otp",
+                	    "/api/auth/verify-otp",
                 		  "/api/auth/admin/login",
                 		    "/api/auth/admin/register",
                 		    "/api/auth/admin/forgot-password",
                 		    "/api/auth/admin/reset-password"
                 		).permitAll()
-                // Admin-only
+                
+                .requestMatchers(
+                		"/api/admin/settings/profile"
+                		).hasAuthority("ROLE_ADMIN")
+                
                 .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
+                
+                .requestMatchers("/api/employee/**").hasAuthority("ROLE_USER")
                 
                 .requestMatchers("/api/candidates/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
                 

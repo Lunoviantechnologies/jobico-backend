@@ -29,6 +29,7 @@ public class Employee {
     private String bankAccountNumber;
     private String bankName;
     private String ifscCode;
+    private double salary;
 
     @Enumerated(EnumType.STRING)
     private EmployeeStatus employeeStatus = EmployeeStatus.ACTIVE;
@@ -53,4 +54,11 @@ public class Employee {
     public void setIfscCode(String ifscCode) { this.ifscCode = ifscCode; }
     public EmployeeStatus getEmployeeStatus() { return employeeStatus; }
     public void setEmployeeStatus(EmployeeStatus employeeStatus) { this.employeeStatus = employeeStatus; }
+	public double getSalary() {
+		return salary;
+	}
+	public void setSalary(double salary) {
+		this.salary = salary;
+	}
+    
 }

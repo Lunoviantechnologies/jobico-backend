@@ -30,6 +30,8 @@ public class AuthService {
     @Autowired private OtpService otpService;
     @Autowired private EmailService emailService;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private AdminProfileRepository adminProfileRepository;
+    @Autowired private EmployeeRepository employeeRepository;
 
     @Value("${app.base-url:http://localhost:8081}")
     private String baseUrl;
@@ -45,16 +47,16 @@ public class AuthService {
      * Creates a default admin (admin@jobico.com / admin@123) on first run
      * if no admin exists yet. Safe to leave in production — only runs once.
      */
-    @PostConstruct
-    public void seedDefaultAdmin() {
-        if (!adminRepository.existsByEmail("admin@jobico.com")) {
-            Admin admin = new Admin();
-            admin.setEmail("admin@jobico.com");
-            admin.setPassword(passwordEncoder.encode("admin@123"));
-            adminRepository.save(admin);
-            System.out.println("[Jobico] Default admin seeded: admin@jobico.com / admin@123");
-        }
-    }
+//    @PostConstruct
+//    public void seedDefaultAdmin() {
+//        if (!adminRepository.existsByEmail("admin@jobico.com")) {
+//            Admin admin = new Admin();
+//            admin.setEmail("admin@jobico.com");
+//            admin.setPassword(passwordEncoder.encode("admin@123"));
+//            adminRepository.save(admin);
+//            System.out.println("[Jobico] Default admin seeded: admin@jobico.com / admin@123");
+//        }
+//    }
 
     // ── USER: OTP Login ───────────────────────────────────────────────────────
 
@@ -84,8 +86,13 @@ public class AuthService {
             }
         }
 
-        String token = jwtUtil.generateToken(user.getMobile(), user.getId(), user.getRole());
-        return new AuthResponse(token,user.getId(),null,user.getMobile(),user.getRole(),isNew);
+        // ✅ Check if this user is an onboarded employee
+        boolean isEmployee = employeeRepository.findByUserMobile(request.getMobile()).isPresent();
+
+        String token = jwtUtil.generateToken(user.getMobile(), user.getMobile(), user.getId(), user.getRole());
+        AuthResponse response = new AuthResponse(token, user.getId(), null, user.getMobile(), user.getRole(), isNew);
+        response.setEmployee(isEmployee);  
+        return response;
     }
 
     // ── ADMIN: Register (NEW) 
@@ -104,24 +111,31 @@ public class AuthService {
         admin.setPassword(passwordEncoder.encode(request.getPassword()));
         adminRepository.save(admin);
 
-        String token = jwtUtil.generateToken(admin.getEmail(), admin.getId(), "ROLE_ADMIN");
+        AdminProfile profile = adminProfileRepository.findByAdmin(admin).orElse(null);
+
+        String name = (profile != null && profile.getName() != null) ? profile.getName() : admin.getEmail();
+
+        String token = jwtUtil.generateToken( admin.getEmail(), name,admin.getId(), "ROLE_ADMIN");
         return new AuthResponse(token,admin.getId(),admin.getEmail(), null,"ROLE_ADMIN",false);
     }
 
-    // ── ADMIN: Login ──────────────────────────────────────────────────────────
-
+    // ── ADMIN: Login 
     public AuthResponse adminLogin(AdminLoginRequest request) {
         Admin admin = adminRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("Invalid email or password."));
 
         if (!passwordEncoder.matches(request.getPassword(), admin.getPassword()))
             throw new UnauthorizedException("Invalid email or password.");
+        AdminProfile profile = adminProfileRepository.findByAdmin(admin).orElse(null);
 
-        String token = jwtUtil.generateToken(admin.getEmail(), admin.getId(), "ROLE_ADMIN");
-        return new AuthResponse(token,admin.getId(),admin.getEmail(),null, "ROLE_ADMIN",false);
+        String name = (profile != null && profile.getName() != null) ? profile.getName() : admin.getEmail();
+
+        String token = jwtUtil.generateToken(admin.getEmail(),name,admin.getId(), "ROLE_ADMIN");
+
+        return new AuthResponse(token, admin.getId(), admin.getEmail(), null, "ROLE_ADMIN", false);
     }
 
-    // ── ADMIN: Forgot Password
+    // ADMIN: Forgot Password
     @Transactional
     public String forgotPassword(ForgotPasswordRequest request) {
         Admin admin = adminRepository.findByEmail(request.getEmail())

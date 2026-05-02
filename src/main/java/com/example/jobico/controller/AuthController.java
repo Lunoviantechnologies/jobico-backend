@@ -105,7 +105,7 @@ public class AuthController {
 
     // ── ADMIN: Reset Password
 
-    @PostMapping("/admin/reset-password")
+    @PutMapping("/admin/reset-password")
     public ResponseEntity<ApiResponse<?>> resetPassword(
             @Valid @RequestBody ResetPasswordRequest request) {
 
@@ -121,7 +121,7 @@ public class AuthController {
         );
     }
 
-    @PostMapping("/admin/update-password")
+    @PutMapping("/admin/update-password")
     public ResponseEntity<ApiResponse<?>> updatePassword(
             @AuthenticationPrincipal UserDetails userDetails,
             @Valid @RequestBody UpdatePasswordRequest request) {

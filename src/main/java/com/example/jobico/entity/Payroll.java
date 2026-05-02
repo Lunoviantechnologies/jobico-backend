@@ -26,6 +26,8 @@ public class Payroll {
     private double allowances;
     private double deductions;
     private double netSalary;
+    
+    private Integer monthOrder;
 
     @Enumerated(EnumType.STRING)
     private PaymentStatus paymentStatus = PaymentStatus.PENDING;
@@ -54,4 +56,11 @@ public class Payroll {
     public void setPaymentStatus(PaymentStatus paymentStatus) { this.paymentStatus = paymentStatus; }
     public LocalDate getPaymentDate() { return paymentDate; }
     public void setPaymentDate(LocalDate paymentDate) { this.paymentDate = paymentDate; }
+	public Integer getMonthOrder() {
+		return monthOrder;
+	}
+	public void setMonthOrder(Integer monthOrder) {
+		this.monthOrder = monthOrder;
+	}
+    
 }

@@ -16,7 +16,7 @@ public class EmployeeListResponse {
     private String bankAccountMasked; // e.g. "HDFC ****4521"
     private String mobile;
     private String email;
-
+    private double salary;
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -49,4 +49,7 @@ public class EmployeeListResponse {
 
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
+	public double getSalary() {return salary;}
+	public void setSalary(double salary) {this.salary = salary;}
+    
 }

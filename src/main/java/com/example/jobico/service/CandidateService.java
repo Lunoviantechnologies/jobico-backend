@@ -6,6 +6,7 @@ import com.example.jobico.exception.ResourceNotFoundException;
 import com.example.jobico.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -262,5 +263,47 @@ public class CandidateService {
     private int calculateAge(LocalDate dob) {
         if (dob == null) return 0;
         return Period.between(dob, LocalDate.now()).getYears();
+    }
+    public Page<CandidateResponse> getCandidates(
+            String name,
+            String skill,
+            String category,
+            String role,
+            Integer minExp,
+            Integer maxExp,
+            int page,
+            int size) {
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+        Specification<Candidate> spec = Specification.where(null);
+
+        if (name != null && !name.isEmpty()) {
+            spec = spec.and((root, query, cb) ->
+                    cb.like(cb.lower(root.get("firstName")), "%" + name.toLowerCase() + "%"));
+        }
+
+        if (skill != null && !skill.isEmpty()) {
+            spec = spec.and((root, query, cb) ->
+                    cb.like(cb.lower(root.join("skills").get("skillName")),
+                            "%" + skill.toLowerCase() + "%"));
+        }
+
+        if (category != null && !category.isEmpty()) {
+            spec = spec.and((root, query, cb) ->
+                    cb.equal(root.get("category"), category));
+        }
+
+        if (role != null && !role.isEmpty()) {
+            spec = spec.and((root, query, cb) ->
+                    cb.like(cb.lower(root.get("role")), "%" + role.toLowerCase() + "%"));
+        }
+
+        if (minExp != null && maxExp != null) {
+            spec = spec.and((root, query, cb) ->
+                    cb.between(root.get("experience"), minExp, maxExp));
+        }
+
+        return candidateRepository.findAll(spec, pageable)
+                .map(this::mapEntityToResponse);
     }
 }

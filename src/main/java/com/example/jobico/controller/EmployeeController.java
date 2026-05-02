@@ -1,4 +1,4 @@
-package com.example.jobico.controller;
+ package com.example.jobico.controller;
 
 import com.example.jobico.dto.*;
 import com.example.jobico.entity.EmployeeStatus;
@@ -77,7 +77,7 @@ public class EmployeeController {
                 employeeManagementService.listEmployees(search, dept, status, page, size));
     }
 
-    // ── Update Status (NEW) ───────────────────────────────────────────────────
+    // Update Status
 
     /**
      * PATCH /api/admin/employees/{id}/status
