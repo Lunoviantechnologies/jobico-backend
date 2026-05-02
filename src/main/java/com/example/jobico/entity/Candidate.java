@@ -1,9 +1,22 @@
 package com.example.jobico.entity;
 
-import jakarta.persistence.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.Table;
+import jakarta.validation.constraints.Size;
 
 @Entity
 @Table(name = "candidates")
@@ -25,6 +38,9 @@ public class Candidate {
 
     private LocalDate dob;
     private int age;
+    @Size(max = 1500, message = "Description cannot exceed 200 words")
+    private String description;
+    private String location;
 
     // Email for communications — separate from mobile login
     private String email;
@@ -79,4 +95,9 @@ public class Candidate {
     public void setEducationList(List<Education> educationList) { this.educationList = educationList; }
     public List<Skill> getSkills() { return skills; }
     public void setSkills(List<Skill> skills) { this.skills = skills; }
+	public String getDescription() {return description;}
+	public void setDescription(String description) {this.description = description;}
+	public String getLocation() {return location;}
+	public void setLocation(String location) {this.location = location;}
+    
 }
