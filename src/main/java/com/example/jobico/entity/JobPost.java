@@ -54,11 +54,10 @@ public class JobPost {
     /** Maximum salary per month in INR. Nullable = not disclosed. */
     private Double salaryMax;
 
-    // ─── Application Window ───────────────────────────────────────────────────
-
+    // ─── Application Window 
     private LocalDate applicationDeadline;
 
-    // ─── Tech Stack / Skills ──────────────────────────────────────────────────
+    // ─── Tech Stack / Skills 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "job_post_tech_stack",
@@ -67,8 +66,7 @@ public class JobPost {
     @Column(name = "skill")
     private List<String> techStack = new ArrayList<>();
 
-    // ─── Job Details ──────────────────────────────────────────────────────────
-
+    // ─── Job Details
     @NotBlank
     @Column(nullable = false, columnDefinition = "TEXT")
     private String description;
@@ -79,7 +77,7 @@ public class JobPost {
     @Column(columnDefinition = "TEXT")
     private String requirementsAndQualifications;
 
-    // ─── Lifecycle ────────────────────────────────────────────────────────────
+    // ─── Lifecycle
 
     @NotNull
     @Enumerated(EnumType.STRING)

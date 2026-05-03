@@ -1,6 +1,7 @@
 package com.example.jobico.entity;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,6 +42,8 @@ public class Candidate {
     @Size(max = 1500, message = "Description cannot exceed 200 words")
     private String description;
     private String location;
+    
+    private LocalDateTime appliedAt;
 
     // Email for communications — separate from mobile login
     private String email;
@@ -99,5 +102,6 @@ public class Candidate {
 	public void setDescription(String description) {this.description = description;}
 	public String getLocation() {return location;}
 	public void setLocation(String location) {this.location = location;}
-    
+	public LocalDateTime getAppliedAt() {return appliedAt;}
+	public void setAppliedAt(LocalDateTime appliedAt) {this.appliedAt = appliedAt;}
 }

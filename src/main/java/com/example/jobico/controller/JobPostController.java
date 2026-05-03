@@ -62,14 +62,6 @@ public class JobPostController {
     }
 
     // ─── Get Single 
-    /**
-     * GET /api/admin/jobs/{id}
-     *
-     * Returns the full detail of a single job post.
-     * Returns 404 if not found, 403 if it belongs to another admin.
-     *
-     * Response: 200 OK — JobPostResponse
-     */
     @GetMapping("/{id}")
     public ResponseEntity<JobPostResponse> getById(
             @AuthenticationPrincipal UserDetails userDetails,
@@ -79,16 +71,8 @@ public class JobPostController {
                 jobPostService.getById(userDetails.getUsername(), id));
     }
 
-    // ─── Full Update ──────────────────────────────────────────────────────────
+    // ─── Full Update 
 
-    /**
-     * PUT /api/admin/jobs/{id}
-     *
-     * Fully replaces all editable fields of a job post.
-     * The status field is NOT changed by this endpoint — use PATCH /status for that.
-     *
-     * Response: 200 OK — JobPostResponse
-     */
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<JobPostResponse>> update(
             @AuthenticationPrincipal UserDetails userDetails,
@@ -101,7 +85,7 @@ public class JobPostController {
                 new ApiResponse<>(true, "Job post updated successfully.", updated, 200));
     }
 
-    // ─── Patch Status ─────────────────────────────────────────────────────────
+    // ─── Patch Status 
 
     /**
      * PATCH /api/admin/jobs/{id}/status
@@ -130,15 +114,6 @@ public class JobPostController {
                 new ApiResponse<>(true, "Job post status updated to " + request.getStatus() + ".", updated, 200));
     }
 
-    // ─── Delete ───────────────────────────────────────────────────────────────
-
-    /**
-     * DELETE /api/admin/jobs/{id}
-     *
-     * Permanently removes the job post from the database.
-     *
-     * Response: 200 OK — ApiResponse (no data body)
-     */
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @AuthenticationPrincipal UserDetails userDetails,
@@ -150,14 +125,7 @@ public class JobPostController {
                 new ApiResponse<>(true, "Job post deleted successfully.", 200));
     }
 
-    // ─── Inner DTO ────────────────────────────────────────────────────────────
-
-    /**
-     * Lightweight inner DTO for the PATCH /status endpoint.
-     *
-     * A separate inner class is used (instead of the generic StatusUpdateRequest)
-     * because the status type here is {@link JobPostStatus}, not {@link com.example.jobico.entity.CandidateStatus}.
-     */
+    // ─── Inner DTO 
     public static class JobPostStatusUpdateRequest {
 
         private JobPostStatus status;

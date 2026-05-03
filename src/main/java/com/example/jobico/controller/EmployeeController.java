@@ -41,7 +41,7 @@ public class EmployeeController {
         return ResponseEntity.status(HttpStatus.CREATED).body(employeeService.onboard(request));
     }
 
-    // ── Get by ID ─────────────────────────────────────────────────────────────
+    // ── Get by ID
 
     /**
      * GET /api/admin/employees/{id}
@@ -89,5 +89,15 @@ public class EmployeeController {
             @Valid @RequestBody EmployeeStatusUpdateRequest request) {
 
         return ResponseEntity.ok(employeeManagementService.updateStatus(id, request));
+    }
+    
+    @PutMapping("/{id}")
+    public ResponseEntity<EmployeeListResponse> updateEmployee(
+            @PathVariable Long id,
+            @Valid @RequestBody EmployeeUpdateRequest request) {
+
+        return ResponseEntity.ok(
+                employeeManagementService.updateEmployee(id, request)
+        );
     }
 }

@@ -27,6 +27,8 @@ public class CandidateRequest {
 
     private int experience;
     private String workType;
+    private String description;   
+    private String location;
 
     @Valid
     private List<EducationDTO> educationList;
@@ -54,4 +56,9 @@ public class CandidateRequest {
     public void setEducationList(List<EducationDTO> educationList) { this.educationList = educationList; }
     public List<SkillDTO> getSkills() { return skills; }
     public void setSkills(List<SkillDTO> skills) { this.skills = skills; }
+	public String getDescription() {return description;}
+	public void setDescription(String description) {this.description = description;}
+	public String getLocation() {return location;}
+	public void setLocation(String location) {this.location = location;}
+    
 }

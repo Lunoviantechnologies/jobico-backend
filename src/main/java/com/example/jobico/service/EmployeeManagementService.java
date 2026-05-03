@@ -2,6 +2,7 @@ package com.example.jobico.service;
 
 import com.example.jobico.dto.EmployeeListResponse;
 import com.example.jobico.dto.EmployeeStatusUpdateRequest;
+import com.example.jobico.dto.EmployeeUpdateRequest;
 import com.example.jobico.entity.Employee;
 import com.example.jobico.entity.EmployeeStatus;
 import com.example.jobico.exception.ResourceNotFoundException;
@@ -92,5 +93,34 @@ public class EmployeeManagementService {
         }
 
         return r;
+    }
+    @Transactional
+    public EmployeeListResponse updateEmployee(Long id, EmployeeUpdateRequest request) {
+
+        Employee emp = employeeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + id));
+
+        // --- Employee fields ---
+        emp.setDepartment(request.getDepartment());
+        emp.setJoiningDate(request.getJoiningDate());
+        emp.setSalary(request.getSalary());
+        emp.setBankName(request.getBankName());
+        emp.setBankAccountNumber(request.getBankAccountNumber());
+        emp.setIfscCode(request.getIfscCode());
+        emp.setEmployeeStatus(request.getStatus());
+
+        // --- Candidate fields ---
+        if (emp.getCandidate() != null) {
+            emp.getCandidate().setRole(request.getRole());
+            emp.getCandidate().setEmail(request.getEmail());
+
+            if (emp.getCandidate().getUser() != null) {
+                emp.getCandidate().getUser().setMobile(request.getMobile());
+            }
+        }
+
+        Employee updated = employeeRepository.save(emp);
+
+        return toListResponse(updated);
     }
 }

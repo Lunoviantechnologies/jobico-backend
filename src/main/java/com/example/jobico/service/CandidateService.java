@@ -234,6 +234,9 @@ public class CandidateService {
         response.setMobile(candidate.getUser().getMobile());
         response.setEmail(candidate.getEmail());
         response.setStatus(candidate.getStatus());
+        response.setLocation(candidate.getLocation());
+        response.setDescription(candidate.getDescription());
+        response.setAppliedAt(candidate.getAppliedAt());
 
         if (candidate.getEducationList() != null) {
             response.setEducationList(candidate.getEducationList().stream().map(edu -> {

@@ -2,6 +2,7 @@ package com.example.jobico.dto;
 
 import com.example.jobico.entity.CandidateStatus;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 public class CandidateResponse {
@@ -19,6 +20,9 @@ public class CandidateResponse {
     private String mobile;
     private String email;
     private CandidateStatus status;
+    private String description;  
+    private String location; 
+    private LocalDateTime appliedAt;
     private List<EducationDTO> educationList;
     private List<SkillDTO> skills;
 
@@ -52,4 +56,11 @@ public class CandidateResponse {
     public void setEducationList(List<EducationDTO> educationList) { this.educationList = educationList; }
     public List<SkillDTO> getSkills() { return skills; }
     public void setSkills(List<SkillDTO> skills) { this.skills = skills; }
+	public String getDescription() {return description;}
+	public void setDescription(String description) {this.description = description;}
+	public String getLocation() {return location;}
+	public void setLocation(String location) {this.location = location;}
+	public LocalDateTime getAppliedAt() {return appliedAt;}
+	public void setAppliedAt(LocalDateTime appliedAt) {this.appliedAt = appliedAt;}
+    
 }
