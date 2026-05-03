@@ -17,7 +17,6 @@ public class AdminProfile {
     @OneToOne
     @JoinColumn(name = "admin_id", unique = true, nullable = false)
     private Admin admin;
-
     private String name;
     private String phone;
     private String designation;

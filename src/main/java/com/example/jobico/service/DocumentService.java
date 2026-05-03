@@ -1,32 +1,46 @@
 package com.example.jobico.service;
 
 import com.example.jobico.dto.ExperienceLetterRequest;
+import com.example.jobico.dto.ExperienceLetterResponse;
 import com.example.jobico.dto.OfferLetterRequest;
-import com.example.jobico.entity.Candidate;
-import com.example.jobico.entity.CandidateStatus;
-import com.example.jobico.entity.Employee;
+import com.example.jobico.dto.OfferLetterResponse;
+import com.example.jobico.entity.*;
 import com.example.jobico.exception.ResourceNotFoundException;
 import com.example.jobico.repository.CandidateRepository;
 import com.example.jobico.repository.EmployeeRepository;
+import com.example.jobico.repository.ExperienceLetterRepository;
+import com.example.jobico.repository.OfferLetterRepository;
 import com.lowagie.text.DocumentException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.xhtmlrenderer.pdf.ITextRenderer;
 
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.TextStyle;
-import java.util.Locale;
+import java.util.List;
+import java.util.UUID;
 
 @Service
 public class DocumentService {
 
-    @Autowired private CandidateRepository candidateRepository;
-    @Autowired private EmployeeRepository  employeeRepository;
-    @Autowired private EmailService        emailService;
-    
+    private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
+
+    @Autowired private CandidateRepository         candidateRepository;
+    @Autowired private EmployeeRepository           employeeRepository;
+    @Autowired private OfferLetterRepository        offerLetterRepository;
+    @Autowired private ExperienceLetterRepository   experienceLetterRepository;
+    @Autowired private EmailService                 emailService;
+    @Autowired private StorageService               storageService;
 
     @Value("${app.company.name:Jobico}")
     private String companyName;
@@ -36,116 +50,227 @@ public class DocumentService {
     private static final String COMPANY_WEBSITE = "www.jobico.in";
     private static final String COMPANY_CIN     = "U74999TG2024PTC123456";
 
+    private static final String OFFER_FOLDER      = "offer-letters";
+    private static final String EXPERIENCE_FOLDER = "experience-letters";
+
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd MMMM yyyy");
-    
-    //  OFFER LETTER   
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  OFFER LETTER
+    // ══════════════════════════════════════════════════════════════════════════
+
     /**
-     * Candidate must be in SELECTED status.
+     * Generate PDF → store on disk → persist DB record.
+     * Returns metadata (no PDF bytes in response).
      */
-    public byte[] generateOfferLetter(OfferLetterRequest request) {
+    @Transactional
+    public OfferLetterResponse generateAndSaveOfferLetter(OfferLetterRequest request) {
         Candidate c = candidateRepository.findById(request.getCandidateId())
-                .orElseThrow(() -> new ResourceNotFoundException("Candidate not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Candidate not found: " + request.getCandidateId()));
 
         if (c.getStatus() != CandidateStatus.SELECTED)
-            throw new RuntimeException("Offer letter can only be generated for SELECTED candidates.");
+            throw new IllegalStateException("Offer letter can only be generated for SELECTED candidates.");
 
         try {
-            return buildOfferLetterPdf(c, request);
+            byte[] pdf      = buildOfferLetterPdf(c, request);
+            String filename = "OfferLetter_" + safe(c.getFirstName()) + "_" + safe(c.getSurname())
+                            + "_" + uuid() + ".pdf";
+            String pdfUrl   = storageService.store(pdf, OFFER_FOLDER, filename);
+
+            OfferLetter ol  = new OfferLetter();
+            ol.setCandidate(c);
+            ol.setSalary(request.getSalary());
+            ol.setJoiningDate(request.getJoiningDate());
+            ol.setPdfUrl(pdfUrl);
+            ol.setReferenceNumber(offerRef(c.getId()));
+            ol.setGeneratedBy(currentUser());
+            offerLetterRepository.save(ol);
+
+            log.info("Offer letter generated: ref={} candidate={}", ol.getReferenceNumber(), c.getId());
+            return OfferLetterResponse.from(ol);
+
         } catch (DocumentException e) {
-            throw new RuntimeException("Failed to generate Offer Letter PDF: " + e.getMessage(), e);
+            throw new RuntimeException("PDF generation failed: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Generate Offer Letter PDF and send it to candidate's email.
+     * Load the PDF bytes from disk and return them for streaming.
+     * Throws 404 if the record or file is missing.
      */
-    public void sendOfferLetterByEmail(OfferLetterRequest request) {
-        Candidate c = candidateRepository.findById(request.getCandidateId())
-                .orElseThrow(() -> new ResourceNotFoundException("Candidate not found"));
+    @Transactional(readOnly = true)
+    public byte[] downloadOfferLetter(Long offerLetterId) {
+        OfferLetter ol = offerLetterRepository.findById(offerLetterId)
+                .orElseThrow(() -> new ResourceNotFoundException("Offer letter not found: " + offerLetterId));
+        return storageService.load(ol.getPdfUrl());
+    }
 
-        if (c.getStatus() != CandidateStatus.SELECTED)
-            throw new RuntimeException("Offer letter can only be sent for SELECTED candidates.");
+    /**
+     * Email the stored PDF to the candidate. Marks emailSent = true.
+     * Safe to call multiple times (admin can re-send).
+     */
+    @Transactional
+    public void sendOfferLetterByEmail(Long offerLetterId) {
+        OfferLetter ol = offerLetterRepository.findById(offerLetterId)
+                .orElseThrow(() -> new ResourceNotFoundException("Offer letter not found: " + offerLetterId));
 
+        Candidate c  = ol.getCandidate();
         String email = c.getEmail();
         if (email == null || email.isBlank())
-            throw new RuntimeException("Candidate does not have an email address on file.");
+            throw new IllegalStateException("Candidate has no email address on file.");
 
-        try {
-            byte[] pdf = buildOfferLetterPdf(c, request);
+        byte[] pdf      = storageService.load(ol.getPdfUrl());
+        String filename = "OfferLetter_" + c.getFirstName() + "_" + c.getSurname() + ".pdf";
+        String subject  = "Offer Letter – " + c.getRole() + " at " + companyName;
+        String body     = emailService.buildOfferLetterEmailBody(
+                c.getFirstName() + " " + c.getSurname(), c.getRole(),
+                ol.getSalary(), ol.getJoiningDate(), companyName);
 
-            String filename = "OfferLetter_" + c.getFirstName() + "_" + c.getSurname() + ".pdf";
-            String subject  = "Offer Letter – " + c.getRole() + " at " + companyName;
-            String htmlBody = emailService.buildOfferLetterEmailBody(
-                    c.getFirstName() + " " + c.getSurname(),
-                    c.getRole(),
-                    request.getSalary(),
-                    request.getJoiningDate(),
-                    companyName);
+        emailService.sendEmailWithPdfAttachment(email, subject, body, pdf, filename);
 
-            emailService.sendEmailWithPdfAttachment(email, subject, htmlBody, pdf, filename);
+        ol.setEmailSent(true);
+        ol.setEmailSentAt(LocalDateTime.now());
+        offerLetterRepository.save(ol);
 
-        } catch (DocumentException e) {
-            throw new RuntimeException("Failed to generate Offer Letter PDF: " + e.getMessage(), e);
-        }
+        log.info("Offer letter emailed: ref={} to={}", ol.getReferenceNumber(), email);
     }
 
-    // ══════════════════════════════════════════════════════════════════
+    /** One-shot convenience: generate + save + email. */
+    @Transactional
+    public OfferLetterResponse generateSaveAndSendOfferLetter(OfferLetterRequest request) {
+        OfferLetterResponse saved = generateAndSaveOfferLetter(request);
+        sendOfferLetterByEmail(saved.getId());
+        return saved;
+    }
+
+    /** Paginated list for admin dashboard. */
+    @Transactional(readOnly = true)
+    public Page<OfferLetterResponse> listOfferLetters(String search, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        String q = (search == null || search.isBlank()) ? null : search.trim();
+        return offerLetterRepository.search(q, pageable).map(OfferLetterResponse::from);
+    }
+
+    /** All offer letters for a single candidate (history view). */
+    @Transactional(readOnly = true)
+    public List<OfferLetterResponse> getOfferLettersForCandidate(Long candidateId) {
+        return offerLetterRepository.findByCandidateIdOrderByGeneratedAtDesc(candidateId)
+                .stream().map(OfferLetterResponse::from).toList();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     //  EXPERIENCE LETTER
-    // ══════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Generate Experience Letter PDF bytes.
-     */
-    public byte[] generateExperienceLetter(ExperienceLetterRequest request) {
+    @Transactional
+    public ExperienceLetterResponse generateAndSaveExperienceLetter(ExperienceLetterRequest request) {
         Employee emp = employeeRepository.findById(request.getEmployeeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Employee not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + request.getEmployeeId()));
 
         try {
-            return buildExperienceLetterPdf(emp, request.getRemarks());
+            byte[] pdf      = buildExperienceLetterPdf(emp, request.getRemarks());
+            Candidate c     = emp.getCandidate();
+            String filename = "ExperienceLetter_" + safe(c.getFirstName()) + "_" + safe(c.getSurname())
+                            + "_" + uuid() + ".pdf";
+            String pdfUrl   = storageService.store(pdf, EXPERIENCE_FOLDER, filename);
+
+            ExperienceLetter el = new ExperienceLetter();
+            el.setEmployee(emp);
+            el.setRemarks(request.getRemarks());
+            el.setPdfUrl(pdfUrl);
+            el.setReferenceNumber(experienceRef(emp.getId()));
+            el.setLastWorkingDay(LocalDate.now());
+            el.setGeneratedBy(currentUser());
+            experienceLetterRepository.save(el);
+
+            log.info("Experience letter generated: ref={} employee={}", el.getReferenceNumber(), emp.getId());
+            return ExperienceLetterResponse.from(el);
+
         } catch (DocumentException e) {
-            throw new RuntimeException("Failed to generate Experience Letter PDF: " + e.getMessage(), e);
+            throw new RuntimeException("PDF generation failed: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Generate Experience Letter PDF and send it to candidate's email.
-     */
-    public void sendExperienceLetterByEmail(ExperienceLetterRequest request) {
-        Employee emp = employeeRepository.findById(request.getEmployeeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Employee not found"));
+    @Transactional(readOnly = true)
+    public byte[] downloadExperienceLetter(Long experienceLetterId) {
+        ExperienceLetter el = experienceLetterRepository.findById(experienceLetterId)
+                .orElseThrow(() -> new ResourceNotFoundException("Experience letter not found: " + experienceLetterId));
+        return storageService.load(el.getPdfUrl());
+    }
 
-        Candidate c   = emp.getCandidate();
-        String email  = c.getEmail();
+    /**
+     * FIX: New method used by the employee self-service endpoint.
+     *
+     * Loads the most recently admin-generated experience letter for the given
+     * employee and returns the raw PDF bytes ready to stream back.
+     *
+     * Throws ResourceNotFoundException (→ 404) when no letter has been
+     * generated yet — the employee should contact HR.
+     */
+    @Transactional(readOnly = true)
+    public byte[] downloadLatestExperienceLetterForEmployee(Long employeeId) {
+        ExperienceLetter el = experienceLetterRepository
+                .findTopByEmployeeIdOrderByGeneratedAtDesc(employeeId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No experience letter found for employee: " + employeeId
+                        + ". Please contact HR."));
+        return storageService.load(el.getPdfUrl());
+    }
+
+    @Transactional
+    public void sendExperienceLetterByEmail(Long experienceLetterId) {
+        ExperienceLetter el = experienceLetterRepository.findById(experienceLetterId)
+                .orElseThrow(() -> new ResourceNotFoundException("Experience letter not found: " + experienceLetterId));
+
+        Candidate c  = el.getEmployee().getCandidate();
+        String email = c.getEmail();
         if (email == null || email.isBlank())
-            throw new RuntimeException("Employee does not have an email address on file.");
+            throw new IllegalStateException("Employee has no email address on file.");
 
-        try {
-            byte[] pdf = buildExperienceLetterPdf(emp, request.getRemarks());
+        byte[] pdf      = storageService.load(el.getPdfUrl());
+        String filename = "ExperienceLetter_" + c.getFirstName() + "_" + c.getSurname() + ".pdf";
+        String subject  = "Experience Letter – " + companyName;
+        String body     = emailService.buildExperienceLetterEmailBody(
+                c.getFirstName() + " " + c.getSurname(), c.getRole(),
+                el.getEmployee().getDepartment(), el.getEmployee().getJoiningDate(), companyName);
 
-            String filename = "ExperienceLetter_" + c.getFirstName() + "_" + c.getSurname() + ".pdf";
-            String subject  = "Experience Letter – " + companyName;
-            String htmlBody = emailService.buildExperienceLetterEmailBody(
-                    c.getFirstName() + " " + c.getSurname(),
-                    c.getRole(),
-                    emp.getDepartment(),
-                    emp.getJoiningDate(),
-                    companyName);
+        emailService.sendEmailWithPdfAttachment(email, subject, body, pdf, filename);
 
-            emailService.sendEmailWithPdfAttachment(email, subject, htmlBody, pdf, filename);
+        el.setEmailSent(true);
+        el.setEmailSentAt(LocalDateTime.now());
+        experienceLetterRepository.save(el);
 
-        } catch (DocumentException e) {
-            throw new RuntimeException("Failed to generate Experience Letter PDF: " + e.getMessage(), e);
-        }
+        log.info("Experience letter emailed: ref={} to={}", el.getReferenceNumber(), email);
     }
 
-    // ══════════════════════════════════════════════════════════════════
+    @Transactional
+    public ExperienceLetterResponse generateSaveAndSendExperienceLetter(ExperienceLetterRequest request) {
+        ExperienceLetterResponse saved = generateAndSaveExperienceLetter(request);
+        sendExperienceLetterByEmail(saved.getId());
+        return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ExperienceLetterResponse> listExperienceLetters(String search, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        String q = (search == null || search.isBlank()) ? null : search.trim();
+        return experienceLetterRepository.search(q, pageable).map(ExperienceLetterResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ExperienceLetterResponse> getExperienceLettersForEmployee(Long employeeId) {
+        return experienceLetterRepository.findByEmployeeIdOrderByGeneratedAtDesc(employeeId)
+                .stream().map(ExperienceLetterResponse::from).toList();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     //  PDF BUILDERS
-    // ══════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
 
     private byte[] buildOfferLetterPdf(Candidate c, OfferLetterRequest request) throws DocumentException {
-        String today   = DATE_FMT.format(LocalDate.now());
-        String joining = DATE_FMT.format(request.getJoiningDate());
-        String name    = c.getFirstName() + " " + c.getSurname();
+        String today      = DATE_FMT.format(LocalDate.now());
+        String joining    = DATE_FMT.format(request.getJoiningDate());
+        String name       = c.getFirstName() + " " + c.getSurname();
         double annualCtc  = request.getSalary();
         double monthlyCtc = annualCtc / 12;
 
@@ -159,12 +284,10 @@ public class DocumentService {
               <title>Offer Letter</title>
               <style type="text/css">
                 * { margin:0; padding:0; box-sizing:border-box; }
-                body { font-family: Arial, Helvetica, sans-serif; font-size:10pt; color:#2c2c2c; background:#f0f4f8; }
+                body { font-family:Arial,Helvetica,sans-serif; font-size:10pt; color:#2c2c2c; background:#f0f4f8; }
                 .page { width:720px; margin:20px auto; background:#fff; border:1px solid #d0d7de; border-radius:8px; overflow:hidden; }
-
-                /* Header */
                 .header { background:#0f2557; padding:22px 36px; }
-                .header-row { display:table; width:100%; }
+                .header-row { display:table; width:100%%; }
                 .header-left { display:table-cell; vertical-align:middle; }
                 .header-right { display:table-cell; vertical-align:middle; text-align:right; }
                 .logo-box { width:44px; height:44px; background:#1a73e8; border-radius:8px;
@@ -175,51 +298,34 @@ public class DocumentService {
                 .doc-badge { background:#1a73e8; color:#fff; padding:6px 16px; border-radius:20px;
                              font-size:9pt; font-weight:bold; letter-spacing:1px; }
                 .doc-date { font-size:9pt; color:#a8c7fa; margin-top:6px; }
-
-                /* Body */
                 .body { padding:30px 36px; }
                 .ref-line { font-size:8.5pt; color:#6b7280; margin-bottom:18px; }
                 .salutation { font-size:11pt; font-weight:bold; color:#0f2557; margin-bottom:14px; }
                 .para { font-size:9.5pt; color:#374151; line-height:1.7; margin-bottom:14px; }
-
-                /* Details table */
                 .section-title { font-size:9pt; font-weight:bold; color:#0f2557; letter-spacing:1px;
                                  text-transform:uppercase; background:#e8f0fe; padding:7px 12px;
                                  border-left:4px solid #1a73e8; margin:20px 0 10px 0; }
-                .detail-table { width:100%; border-collapse:collapse; }
+                .detail-table { width:100%%; border-collapse:collapse; }
                 .detail-table tr:nth-child(even) { background:#f8fafc; }
                 .detail-table td { padding:8px 12px; font-size:9.5pt; border-bottom:1px solid #edf2f7; }
-                .detail-table td:first-child { font-weight:bold; color:#374151; width:42%; }
-                .detail-table td:last-child { color:#1e293b; }
-
-                /* Acceptance box */
+                .detail-table td:first-child { font-weight:bold; color:#374151; width:42%%; }
                 .accept-box { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px;
                               padding:14px 18px; margin:22px 0; }
                 .accept-box p { font-size:9pt; color:#166534; line-height:1.6; }
-
-                /* Signature */
-                .sign-area { display:table; width:100%; margin-top:30px; }
-                .sign-left { display:table-cell; width:50%; vertical-align:bottom; }
-                .sign-right { display:table-cell; width:50%; text-align:right; vertical-align:bottom; }
+                .sign-area { display:table; width:100%%; margin-top:30px; }
+                .sign-left { display:table-cell; width:50%%; vertical-align:bottom; }
+                .sign-right { display:table-cell; width:50%%; text-align:right; vertical-align:bottom; }
                 .sign-line { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; }
                 .sign-line-right { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; margin-left:auto; }
                 .sign-label { font-size:8pt; color:#6b7280; }
-
-                /* Footer */
                 .footer { background:#f8fafc; border-top:1px solid #e2e8f0; padding:12px 36px; }
                 .footer-text { font-size:7.5pt; color:#94a3b8; text-align:center; }
                 .cin { font-size:7pt; color:#cbd5e1; text-align:center; margin-top:3px; }
-
                 .highlight { color:#1a73e8; font-weight:bold; }
-                .stamp { display:inline-block; border:2px solid #1a73e8; color:#1a73e8;
-                         padding:3px 12px; border-radius:4px; font-size:8.5pt;
-                         font-weight:bold; letter-spacing:2px; }
               </style>
             </head>
             <body>
             <div class="page">
-
-              <!-- HEADER -->
               <div class="header">
                 <div class="header-row">
                   <div class="header-left">
@@ -233,24 +339,19 @@ public class DocumentService {
                   </div>
                 </div>
               </div>
-
-              <!-- BODY -->
               <div class="body">
-                <div class="ref-line">Ref: JBC/OL/%s/%s</div>
+                <div class="ref-line">Ref: %s</div>
                 <div class="salutation">Dear %s,</div>
-
                 <p class="para">
-                  We are delighted to extend an offer of employment to you for the position of
+                  We are delighted to extend an offer of employment for the position of
                   <span class="highlight">%s</span> at <span class="highlight">%s</span>.
                   This offer is contingent upon successful completion of our pre-employment
                   verification process and your formal acceptance of the terms outlined herein.
                 </p>
-
                 <p class="para">
                   We were impressed with your background and are confident that your skills and
                   experience will be a valuable addition to our team.
                 </p>
-
                 <div class="section-title">Appointment Details</div>
                 <table class="detail-table">
                   <tr><td>Designation</td><td>%s</td></tr>
@@ -262,7 +363,6 @@ public class DocumentService {
                   <tr><td>Work Location</td><td>Hyderabad, Telangana</td></tr>
                   <tr><td>Probation Period</td><td>3 Months</td></tr>
                 </table>
-
                 <div class="section-title">Terms &amp; Conditions</div>
                 <p class="para">
                   1. This offer is valid for <b>7 days</b> from the date of this letter.<br/>
@@ -270,20 +370,14 @@ public class DocumentService {
                   3. The salary details mentioned are subject to applicable statutory deductions (PF, PT, TDS).<br/>
                   4. This letter does not constitute a contract of employment.
                 </p>
-
                 <div class="accept-box">
-                  <p>
-                    &#10003; To accept this offer, please sign and return a copy of this letter along with
-                    your documents. By accepting, you confirm your joining date of <b>%s</b>.
-                  </p>
+                  <p>&#10003; To accept this offer, please sign and return a copy of this letter. By accepting,
+                  you confirm your joining date of <b>%s</b>.</p>
                 </div>
-
                 <p class="para">
-                  We look forward to welcoming you to the <b>%s</b> family. Please feel free to reach
-                  out to us at <b>%s</b> should you have any questions.
+                  We look forward to welcoming you to the <b>%s</b> family. Please reach out to us at
+                  <b>%s</b> for any questions.
                 </p>
-
-                <!-- Signature -->
                 <div class="sign-area">
                   <div class="sign-left">
                     <div class="sign-line">&#160;</div>
@@ -295,41 +389,21 @@ public class DocumentService {
                   </div>
                 </div>
               </div>
-
-              <!-- FOOTER -->
               <div class="footer">
-                <div class="footer-text">This is a computer-generated document. For queries write to %s</div>
+                <div class="footer-text">Computer-generated document. Queries: %s</div>
                 <div class="cin">CIN: %s &#160;|&#160; %s</div>
               </div>
-
             </div>
-            </body>
-            </html>
+            </body></html>
             """.formatted(
-                companyName, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE,
-                today,
-                // ref
-                LocalDate.now().getYear(), c.getId(),
-                // salutation
-                name,
-                // opening para
+                companyName, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE, today,
+                offerRef(c.getId()), name,
                 c.getRole(), companyName,
-                // details table
-                c.getRole(),
-                c.getCategory(),
-                joining,
-                String.format("%,.2f", annualCtc),
-                String.format("%,.2f", monthlyCtc),
-                // acceptance box
-                joining,
-                // closing
-                companyName, COMPANY_EMAIL,
-                // sign
-                companyName,
-                // footer
+                c.getRole(), c.getCategory(), joining,
+                String.format("%,.2f", annualCtc), String.format("%,.2f", monthlyCtc),
+                joining, companyName, COMPANY_EMAIL, companyName,
                 COMPANY_EMAIL, COMPANY_CIN, COMPANY_WEBSITE
         );
-
         return renderPdf(html);
     }
 
@@ -339,19 +413,17 @@ public class DocumentService {
         String fromDate = DATE_FMT.format(emp.getJoiningDate());
         String name     = c.getFirstName() + " " + c.getSurname();
 
-        // Calculate tenure
-        LocalDate from   = emp.getJoiningDate();
-        LocalDate to     = LocalDate.now();
-        long months      = java.time.temporal.ChronoUnit.MONTHS.between(from, to);
-        long years       = months / 12;
-        long remMonths   = months % 12;
-        String tenure    = (years > 0 ? years + " year" + (years > 1 ? "s" : "") + " " : "")
-                         + (remMonths > 0 ? remMonths + " month" + (remMonths > 1 ? "s" : "") : "").trim();
+        LocalDate from = emp.getJoiningDate();
+        LocalDate to   = LocalDate.now();
+        long months    = java.time.temporal.ChronoUnit.MONTHS.between(from, to);
+        long years     = months / 12;
+        long remMonths = months % 12;
+        String tenure  = (years > 0 ? years + " year" + (years > 1 ? "s" : "") + " " : "")
+                       + (remMonths > 0 ? remMonths + " month" + (remMonths > 1 ? "s" : "") : "").trim();
         if (tenure.isBlank()) tenure = "less than a month";
 
         String finalRemarks = (remarks != null && !remarks.isBlank())
-                ? remarks
-                : "We wish " + c.getFirstName() + " the very best in all future endeavors.";
+                ? remarks : "We wish " + c.getFirstName() + " the very best in all future endeavors.";
 
         String html = """
             <?xml version="1.0" encoding="UTF-8"?>
@@ -363,11 +435,10 @@ public class DocumentService {
               <title>Experience Letter</title>
               <style type="text/css">
                 * { margin:0; padding:0; box-sizing:border-box; }
-                body { font-family: Arial, Helvetica, sans-serif; font-size:10pt; color:#2c2c2c; background:#f0f4f8; }
+                body { font-family:Arial,Helvetica,sans-serif; font-size:10pt; color:#2c2c2c; }
                 .page { width:720px; margin:20px auto; background:#fff; border:1px solid #d0d7de; border-radius:8px; overflow:hidden; }
-
                 .header { background:#0f2557; padding:22px 36px; }
-                .header-row { display:table; width:100%; }
+                .header-row { display:table; width:100%%; }
                 .header-left { display:table-cell; vertical-align:middle; }
                 .header-right { display:table-cell; vertical-align:middle; text-align:right; }
                 .logo-box { width:44px; height:44px; background:#1a73e8; border-radius:8px;
@@ -378,51 +449,39 @@ public class DocumentService {
                 .doc-badge { background:#1a73e8; color:#fff; padding:6px 16px; border-radius:20px;
                              font-size:9pt; font-weight:bold; letter-spacing:1px; }
                 .doc-date { font-size:9pt; color:#a8c7fa; margin-top:6px; }
-
-                /* Certification band */
                 .cert-band { background:#1a73e8; padding:10px 36px; }
-                .cert-text { font-size:9pt; color:#cfe2ff; display:table; width:100%; }
+                .cert-text { font-size:9pt; color:#cfe2ff; display:table; width:100%%; }
                 .cert-cell { display:table-cell; padding-right:24px; }
-                .cert-cell span { color:#ffffff; font-weight:bold; }
-
+                .cert-cell span { color:#fff; font-weight:bold; }
                 .body { padding:30px 36px; }
                 .ref-line { font-size:8.5pt; color:#6b7280; margin-bottom:18px; }
                 .whom { font-size:10pt; font-weight:bold; color:#374151; margin-bottom:18px;
                         border-left:4px solid #1a73e8; padding-left:10px; }
                 .para { font-size:9.5pt; color:#374151; line-height:1.8; margin-bottom:16px; }
-
-                /* Highlight card */
                 .info-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;
                              padding:18px 22px; margin:20px 0; }
-                .info-grid { display:table; width:100%; }
-                .info-col { display:table-cell; width:50%; vertical-align:top; padding-right:20px; }
-                .info-col:last-child { padding-right:0; }
+                .info-grid { display:table; width:100%%; }
+                .info-col { display:table-cell; width:50%%; vertical-align:top; padding-right:20px; }
                 .info-item { margin-bottom:12px; }
                 .info-label { font-size:7.5pt; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; }
                 .info-value { font-size:10pt; font-weight:bold; color:#1e293b; }
-
                 .remarks-box { background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px;
                                padding:14px 18px; margin:18px 0; }
                 .remarks-box p { font-size:9.5pt; color:#1e40af; line-height:1.6; font-style:italic; }
-
-                .sign-area { display:table; width:100%; margin-top:36px; }
-                .sign-left { display:table-cell; width:50%; vertical-align:bottom; }
-                .sign-right { display:table-cell; width:50%; text-align:right; vertical-align:bottom; }
+                .sign-area { display:table; width:100%%; margin-top:36px; }
+                .sign-left { display:table-cell; width:50%%; vertical-align:bottom; }
+                .sign-right { display:table-cell; width:50%%; text-align:right; vertical-align:bottom; }
                 .sign-line { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; }
                 .sign-line-right { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; margin-left:auto; }
                 .sign-label { font-size:8pt; color:#6b7280; }
-
                 .footer { background:#f8fafc; border-top:1px solid #e2e8f0; padding:12px 36px; }
                 .footer-text { font-size:7.5pt; color:#94a3b8; text-align:center; }
                 .cin { font-size:7pt; color:#cbd5e1; text-align:center; margin-top:3px; }
-
                 .highlight { color:#1a73e8; font-weight:bold; }
               </style>
             </head>
             <body>
             <div class="page">
-
-              <!-- HEADER -->
               <div class="header">
                 <div class="header-row">
                   <div class="header-left">
@@ -436,8 +495,6 @@ public class DocumentService {
                   </div>
                 </div>
               </div>
-
-              <!-- CERT BAND -->
               <div class="cert-band">
                 <div class="cert-text">
                   <div class="cert-cell"><span>Employee ID: </span>%s</div>
@@ -445,27 +502,19 @@ public class DocumentService {
                   <div class="cert-cell"><span>Total Tenure: </span>%s</div>
                 </div>
               </div>
-
-              <!-- BODY -->
               <div class="body">
-                <div class="ref-line">Ref: JBC/EL/%s/%s</div>
+                <div class="ref-line">Ref: %s</div>
                 <div class="whom">To Whom It May Concern</div>
-
                 <p class="para">
                   This is to certify that <span class="highlight">%s</span> was employed with
                   <span class="highlight">%s</span> as <span class="highlight">%s</span>
                   in the <span class="highlight">%s</span> department.
-                  The tenure of employment was from <b>%s</b> to <b>%s</b>, a period of <b>%s</b>.
+                  Tenure: <b>%s</b> to <b>%s</b> — a period of <b>%s</b>.
                 </p>
-
                 <p class="para">
-                  During the course of employment, %s demonstrated a high level of professionalism,
-                  dedication, and technical competence. The responsibilities included but were not
-                  limited to performing duties associated with the role of <b>%s</b> and contributing
-                  to team and organisational objectives.
+                  During employment, %s demonstrated high professionalism, dedication and
+                  technical competence in the role of <b>%s</b>.
                 </p>
-
-                <!-- Employee Details Card -->
                 <div class="info-card">
                   <div class="info-grid">
                     <div class="info-col">
@@ -498,18 +547,8 @@ public class DocumentService {
                     </div>
                   </div>
                 </div>
-
-                <!-- Remarks -->
-                <div class="remarks-box">
-                  <p>&#8220; %s &#8221;</p>
-                </div>
-
-                <p class="para">
-                  We wish %s the very best in all future professional endeavors and hope that the
-                  experience gained at <b>%s</b> will be of great benefit.
-                </p>
-
-                <!-- Signature -->
+                <div class="remarks-box"><p>&#8220; %s &#8221;</p></div>
+                <p class="para">We wish %s the very best in all future professional endeavors.</p>
                 <div class="sign-area">
                   <div class="sign-left">
                     <div class="sign-label" style="margin-bottom:30px;">Issued on: %s</div>
@@ -522,44 +561,30 @@ public class DocumentService {
                   </div>
                 </div>
               </div>
-
-              <!-- FOOTER -->
               <div class="footer">
-                <div class="footer-text">This is a computer-generated document. For verification write to %s</div>
+                <div class="footer-text">Computer-generated document. Verification: %s</div>
                 <div class="cin">CIN: %s &#160;|&#160; %s</div>
               </div>
-
             </div>
-            </body>
-            </html>
+            </body></html>
             """.formatted(
-                // Header
-                companyName, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE,
-                today,
-                // Cert band
+                companyName, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE, today,
                 emp.getEmployeeId(), emp.getDepartment(), tenure,
-                // Ref
-                LocalDate.now().getYear(), emp.getId(),
-                // Para 1
+                experienceRef(emp.getId()),
                 name, companyName, c.getRole(), emp.getDepartment(), fromDate, today, tenure,
-                // Para 2
                 c.getFirstName(), c.getRole(),
-                // Info card
                 name, emp.getEmployeeId(), c.getRole(),
                 emp.getDepartment(), fromDate, today,
-                // Remarks
                 finalRemarks,
-                // Closing
-                c.getFirstName(), companyName,
-                // Footer sign
+                c.getFirstName(),
                 today, companyName,
                 COMPANY_EMAIL, COMPANY_CIN, COMPANY_WEBSITE
         );
-
         return renderPdf(html);
     }
 
-    // ── PDF render helper 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private byte[] renderPdf(String html) throws DocumentException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ITextRenderer renderer = new ITextRenderer();
@@ -567,5 +592,29 @@ public class DocumentService {
         renderer.layout();
         renderer.createPDF(baos);
         return baos.toByteArray();
+    }
+
+    private String offerRef(Long candidateId) {
+        return "JBC/OL/" + LocalDate.now().getYear() + "/" + candidateId;
+    }
+
+    private String experienceRef(Long employeeId) {
+        return "JBC/EL/" + LocalDate.now().getYear() + "/" + employeeId;
+    }
+
+    private static String uuid() {
+        return UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    private static String safe(String s) {
+        return s == null ? "unknown" : s.replaceAll("[^a-zA-Z0-9]", "");
+    }
+
+    private String currentUser() {
+        try {
+            return SecurityContextHolder.getContext().getAuthentication().getName();
+        } catch (Exception e) {
+            return "system";
+        }
     }
 }

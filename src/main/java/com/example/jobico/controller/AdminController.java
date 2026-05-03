@@ -1,24 +1,32 @@
 package com.example.jobico.controller;
 
 import com.example.jobico.dto.*;
-import com.example.jobico.service.CandidateService;
-import com.example.jobico.service.DocumentService;
-import com.example.jobico.service.FileService;
+import com.example.jobico.entity.EmployeeStatus;
+import com.example.jobico.service.*;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
-import org.springframework.http.*;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin")
 public class AdminController {
 
-    @Autowired private CandidateService candidateService;
-    @Autowired private FileService fileService;
-    @Autowired private DocumentService documentService;
+    @Autowired private CandidateService           candidateService;
+    @Autowired private FileService                fileService;
+    @Autowired private DocumentService            documentService;
+    @Autowired private EmployeeManagementService  employeeManagementService;
 
+    // ── Candidates ────────────────────────────────────────────────────────────
 
     @GetMapping("/candidates/all")
     public ResponseEntity<Page<CandidateResponse>> getCandidates(
@@ -27,112 +35,213 @@ public class AdminController {
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-
-        return ResponseEntity.ok(
-            candidateService.getCandidates(search, status, category, page, size)
-        );
+        return ResponseEntity.ok(candidateService.getCandidates(search, status, category, page, size));
     }
 
     @GetMapping("/candidates/{id}")
     public ResponseEntity<CandidateResponse> getCandidateById(@PathVariable Long id) {
         return ResponseEntity.ok(candidateService.getById(id));
     }
+
     @PatchMapping("/candidates/{id}/status")
     public ResponseEntity<CandidateResponse> updateStatus(
-            @PathVariable Long id,
-            @Valid @RequestBody StatusUpdateRequest request) {
+            @PathVariable Long id, @Valid @RequestBody StatusUpdateRequest request) {
         return ResponseEntity.ok(candidateService.updateStatus(id, request.getStatus()));
     }
+
     @GetMapping("/candidates/{id}/resume")
     public ResponseEntity<Resource> downloadResume(@PathVariable Long id) {
         String resumePath = candidateService.getResumePath(id);
         Resource resource = fileService.loadResumeAsResource(resumePath);
-
         String contentType = "application/octet-stream";
-        String filename = resource.getFilename();
+        String filename    = resource.getFilename();
         if (filename != null) {
-            if (filename.endsWith(".pdf")) contentType = "application/pdf";
-            else if (filename.endsWith(".doc")) contentType = "application/msword";
+            if (filename.endsWith(".pdf"))  contentType = "application/pdf";
+            else if (filename.endsWith(".doc"))  contentType = "application/msword";
             else if (filename.endsWith(".docx"))
                 contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         }
-
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + resource.getFilename() + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .body(resource);
     }
 
-    // ─── Offer Letter ────────────────────────────────────────────────────────
-
-    /**
-     * POST /api/admin/offer-letter
-     * Body: { "candidateId": 1, "salary": 600000.00, "joiningDate": "2026-05-01" }
-     * Only works when candidate status = SELECTED.
-     */
-    @PostMapping("/offer-letter")
-    public ResponseEntity<byte[]> generateOfferLetter(
-            @Valid @RequestBody OfferLetterRequest request) {
-        byte[] content = documentService.generateOfferLetter(request);
-        return ResponseEntity.ok()
-        		.contentType(MediaType.APPLICATION_PDF)
-        		.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"offer_letter.pdf\"")
-                .body(content);
+    @GetMapping("/candidates/selected")
+    public ResponseEntity<Page<CandidateResponse>> getSelectedCandidates(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(candidateService.getCandidates(search, "SELECTED", category, page, size));
     }
 
-    // ─── Experience Letter 
+    // ── Offer Letters 
 
     /**
-     * POST /api/admin/experience-letter
-     * Body: { "employeeId": 1, "remarks": "Outstanding contributor." }
+     * STEP 1 — Generate and persist the offer letter PDF.
+     * Returns metadata only (no bytes). Admin sees it in the list immediately.
+     *
+     * POST /api/admin/offer-letter/generate
+     * { "candidateId": 1, "salary": 600000.00, "joiningDate": "2026-06-01" }
      */
-    @PostMapping("/experience-letter")
-    public ResponseEntity<byte[]> generateExperienceLetter(
-            @Valid @RequestBody ExperienceLetterRequest request) {
-        byte[] content = documentService.generateExperienceLetter(request);
-        return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"experience_letter.txt\"")
-                .body(content);
-    }
- // Send Offer Letter via Email 
-
-    /**
-     * POST /api/admin/offer-letter/send
-     * Generates Offer Letter PDF and emails it directly to candidate.
-     * Body: { "candidateId": 1, "salary": 600000.00, "joiningDate": "2026-05-01" }
-     * Candidate must be SELECTED and must have an email on file.
-     */
-    @PostMapping("/offer-letter/send")
-    public ResponseEntity<ApiResponse> sendOfferLetterByEmail(
+    @PostMapping("/offer-letter/generate")
+    public ResponseEntity<OfferLetterResponse> generateOfferLetter(
             @Valid @RequestBody OfferLetterRequest request) {
-        documentService.sendOfferLetterByEmail(request);
+        return ResponseEntity.ok(documentService.generateAndSaveOfferLetter(request));
+    }
+
+    /**
+     * STEP 2a — Preview / download the stored PDF in browser.
+     *
+     * GET /api/admin/offer-letter/{id}/download
+     */
+    @GetMapping("/offer-letter/{id}/download")
+    public ResponseEntity<byte[]> downloadOfferLetter(@PathVariable Long id) {
+        byte[] pdf = documentService.downloadOfferLetter(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"offer_letter.pdf\"")
+                .body(pdf);
+    }
+
+    /**
+     * STEP 2b — Email the already-generated PDF to the candidate.
+     * Can be called again to re-send (e.g. candidate missed the email).
+     *
+     * POST /api/admin/offer-letter/{id}/send
+     */
+    @PostMapping("/offer-letter/{id}/send")
+    public ResponseEntity<ApiResponse> sendOfferLetterByEmail(@PathVariable Long id) {
+        documentService.sendOfferLetterByEmail(id);
         return ResponseEntity.ok(new ApiResponse(true, "Offer letter sent to candidate's email successfully.", 200));
     }
 
-    // ─── Send Experience Letter via Email ────────────────────────────────────────
+    /**
+     * One-shot — generate + persist + email atomically.
+     *
+     * POST /api/admin/offer-letter/generate-and-send
+     */
+    @PostMapping("/offer-letter/generate-and-send")
+    public ResponseEntity<OfferLetterResponse> generateAndSendOfferLetter(
+            @Valid @RequestBody OfferLetterRequest request) {
+        return ResponseEntity.ok(documentService.generateSaveAndSendOfferLetter(request));
+    }
 
     /**
-     * POST /api/admin/experience-letter/send
-     * Generates Experience Letter PDF and emails it directly to employee.
-     * Body: { "employeeId": 1, "remarks": "Outstanding contributor." }
-     * Employee must have an email on file.
+     * Admin dashboard — paginated list of all offer letters.
+     *
+     * GET /api/admin/offer-letter?search=John&page=0&size=10
      */
-    @PostMapping("/experience-letter/send")
-    public ResponseEntity<ApiResponse> sendExperienceLetterByEmail(
-            @Valid @RequestBody ExperienceLetterRequest request) {
-        documentService.sendExperienceLetterByEmail(request);
-        return ResponseEntity.ok(new ApiResponse(true, "Experience letter sent to employee's email successfully.",200));
+    @GetMapping("/offer-letter")
+    public ResponseEntity<Page<OfferLetterResponse>> listOfferLetters(
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(documentService.listOfferLetters(search, page, size));
     }
-    @GetMapping("/candidates/selected")
-    public ResponseEntity<Page<CandidateResponse>> getSelectedCandidates(
+
+    /**
+     * History — all offer letters for a specific candidate.
+     *
+     * GET /api/admin/candidates/{id}/offer-letters
+     */
+    @GetMapping("/candidates/{id}/offer-letters")
+    public ResponseEntity<List<OfferLetterResponse>> getOfferLettersForCandidate(@PathVariable Long id) {
+        return ResponseEntity.ok(documentService.getOfferLettersForCandidate(id));
+    }
+
+    // ── Experience Letters ────────────────────────────────────────────────────
+
+    /**
+     * STEP 1 — Generate and persist the experience letter PDF.
+     *
+     * POST /api/admin/experience-letter/generate
+     * { "employeeId": 1, "remarks": "Outstanding contributor." }
+     */
+    @PostMapping("/experience-letter/generate")
+    public ResponseEntity<ExperienceLetterResponse> generateExperienceLetter(
+            @Valid @RequestBody ExperienceLetterRequest request) {
+        return ResponseEntity.ok(documentService.generateAndSaveExperienceLetter(request));
+    }
+
+    /**
+     * STEP 2a — Preview / download the stored PDF.
+     *
+     * GET /api/admin/experience-letter/{id}/download
+     */
+    @GetMapping("/experience-letter/{id}/download")
+    public ResponseEntity<byte[]> downloadExperienceLetter(@PathVariable Long id) {
+        byte[] pdf = documentService.downloadExperienceLetter(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"experience_letter.pdf\"")
+                .body(pdf);
+    }
+
+    /**
+     * STEP 2b — Email the already-generated PDF to the employee.
+     *
+     * POST /api/admin/experience-letter/{id}/send
+     */
+    @PostMapping("/experience-letter/{id}/send")
+    public ResponseEntity<ApiResponse> sendExperienceLetterByEmail(@PathVariable Long id) {
+        documentService.sendExperienceLetterByEmail(id);
+        return ResponseEntity.ok(new ApiResponse(true, "Experience letter sent to employee's email successfully.", 200));
+    }
+
+    /**
+     * One-shot — generate + persist + email.
+     *
+     * POST /api/admin/experience-letter/generate-and-send
+     */
+    @PostMapping("/experience-letter/generate-and-send")
+    public ResponseEntity<ExperienceLetterResponse> generateAndSendExperienceLetter(
+            @Valid @RequestBody ExperienceLetterRequest request) {
+        return ResponseEntity.ok(documentService.generateSaveAndSendExperienceLetter(request));
+    }
+
+    /**
+     * Admin dashboard — paginated list of all experience letters.
+     *
+     * GET /api/admin/experience-letter?search=&page=0&size=10
+     */
+    @GetMapping("/experience-letter")
+    public ResponseEntity<Page<ExperienceLetterResponse>> listExperienceLetters(
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(documentService.listExperienceLetters(search, page, size));
+    }
+
+    /**
+     * History — all experience letters for a specific employee.
+     *
+     * GET /api/admin/employees/{id}/experience-letters
+     */
+    @GetMapping("/employees/{id}/experience-letters")
+    public ResponseEntity<List<ExperienceLetterResponse>> getExperienceLettersForEmployee(@PathVariable Long id) {
+        return ResponseEntity.ok(documentService.getExperienceLettersForEmployee(id));
+    }
+
+    // ── Employees ─────────────────────────────────────────────────────────────
+
+    @GetMapping("/employees/exited")
+    public ResponseEntity<Page<EmployeeListResponse>> getExitedEmployees(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String department,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        return ResponseEntity.ok(
-                candidateService.getSelectedCandidates(page, size)
-        );
+        Page<EmployeeListResponse> resigned =
+                employeeManagementService.listEmployees(search, department, EmployeeStatus.RESIGNED, page, size);
+        Page<EmployeeListResponse> terminated =
+                employeeManagementService.listEmployees(search, department, EmployeeStatus.TERMINATED, page, size);
+
+        List<EmployeeListResponse> combined = new ArrayList<>();
+        combined.addAll(resigned.getContent());
+        combined.addAll(terminated.getContent());
+
+        return ResponseEntity.ok(new PageImpl<>(combined, PageRequest.of(page, size), combined.size()));
     }
 }
