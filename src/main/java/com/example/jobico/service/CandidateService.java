@@ -304,4 +304,12 @@ public class CandidateService {
     return candidateRepository.findAll(spec, pageable)
             .map(this::mapEntityToResponse);
     }
+    public Page<CandidateResponse> getSelectedCandidates(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+
+        return candidateRepository.findAll(
+                (root, query, cb) -> cb.equal(root.get("status"), CandidateStatus.SELECTED),
+                pageable
+        ).map(this::mapEntityToResponse);
+    }
 }

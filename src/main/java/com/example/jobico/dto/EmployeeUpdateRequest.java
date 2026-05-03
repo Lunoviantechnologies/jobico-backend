@@ -6,31 +6,15 @@ import java.time.LocalDate;
 
 public class EmployeeUpdateRequest {
 
-    @NotBlank
     private String department;
-
-    @NotBlank
     private String role;
-
-    @NotNull
     private LocalDate joiningDate;
-
-    @NotNull
     @Min(0)
     private Double salary;
-
-    @NotBlank
     private String bankName;
-
-    @NotBlank
     private String bankAccountNumber;
-
-    @NotBlank
     private String ifscCode;
-
-    @NotNull
     private EmployeeStatus status;
-
     private String mobile;
     private String email;
 	public String getDepartment() {

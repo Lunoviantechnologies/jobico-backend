@@ -126,4 +126,13 @@ public class AdminController {
         documentService.sendExperienceLetterByEmail(request);
         return ResponseEntity.ok(new ApiResponse(true, "Experience letter sent to employee's email successfully.",200));
     }
+    @GetMapping("/candidates/selected")
+    public ResponseEntity<Page<CandidateResponse>> getSelectedCandidates(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        return ResponseEntity.ok(
+                candidateService.getSelectedCandidates(page, size)
+        );
+    }
 }

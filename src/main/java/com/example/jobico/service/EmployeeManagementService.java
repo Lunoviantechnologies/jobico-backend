@@ -101,24 +101,51 @@ public class EmployeeManagementService {
                 .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + id));
 
         // --- Employee fields ---
-        emp.setDepartment(request.getDepartment());
-        emp.setJoiningDate(request.getJoiningDate());
-        emp.setSalary(request.getSalary());
-        emp.setBankName(request.getBankName());
-        emp.setBankAccountNumber(request.getBankAccountNumber());
-        emp.setIfscCode(request.getIfscCode());
-        emp.setEmployeeStatus(request.getStatus());
+        if (request.getDepartment() != null) {
+            emp.setDepartment(request.getDepartment());
+        }
 
-        // --- Candidate fields ---
+        if (request.getJoiningDate() != null) {
+            emp.setJoiningDate(request.getJoiningDate());
+        }
+
+        if (request.getSalary() != null) {
+            emp.setSalary(request.getSalary());
+        }
+
+        if (request.getBankName() != null && !request.getBankName().isBlank()) {
+            emp.setBankName(request.getBankName());
+        }
+
+        if (request.getBankAccountNumber() != null && !request.getBankAccountNumber().isBlank()) {
+            emp.setBankAccountNumber(request.getBankAccountNumber());
+        }
+
+        if (request.getIfscCode() != null && !request.getIfscCode().isBlank()) {
+            emp.setIfscCode(request.getIfscCode());
+        }
+
+        if (request.getStatus() != null) {
+            emp.setEmployeeStatus(request.getStatus());
+        }
+
+        //  Candidate fields
         if (emp.getCandidate() != null) {
-            emp.getCandidate().setRole(request.getRole());
-            emp.getCandidate().setEmail(request.getEmail());
 
-            if (emp.getCandidate().getUser() != null) {
+            if (request.getRole() != null) {
+                emp.getCandidate().setRole(request.getRole());
+            }
+
+            if (request.getEmail() != null) {
+                emp.getCandidate().setEmail(request.getEmail());
+            }
+
+            if (emp.getCandidate().getUser() != null &&
+                request.getMobile() != null) {
+
                 emp.getCandidate().getUser().setMobile(request.getMobile());
             }
         }
-
         Employee updated = employeeRepository.save(emp);
 
         return toListResponse(updated);
