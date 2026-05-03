@@ -26,7 +26,7 @@ public class AdminController {
     @Autowired private DocumentService            documentService;
     @Autowired private EmployeeManagementService  employeeManagementService;
 
-    // ── Candidates ────────────────────────────────────────────────────────────
+    // ── Candidates 
 
     @GetMapping("/candidates/all")
     public ResponseEntity<Page<CandidateResponse>> getCandidates(
@@ -73,7 +73,23 @@ public class AdminController {
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
+        // Only returns SELECTED candidates — i.e. those whose offer letter has NOT yet been generated
         return ResponseEntity.ok(candidateService.getCandidates(search, "SELECTED", category, page, size));
+    }
+
+    /**
+     * Candidates whose offer letter has been generated but who have NOT yet been onboarded.
+     * Use this list to track / manage candidates pending onboarding.
+     *
+     * GET /api/admin/candidates/offer-letter-generated
+     */
+    @GetMapping("/candidates/offer-letter-generated")
+    public ResponseEntity<Page<CandidateResponse>> getOfferLetterGeneratedCandidates(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(candidateService.getCandidates(search, "OFFER_LETTER_GENERATED", category, page, size));
     }
 
     // ── Offer Letters 
@@ -224,7 +240,7 @@ public class AdminController {
         return ResponseEntity.ok(documentService.getExperienceLettersForEmployee(id));
     }
 
-    // ── Employees ─────────────────────────────────────────────────────────────
+    // ── Employees
 
     @GetMapping("/employees/exited")
     public ResponseEntity<Page<EmployeeListResponse>> getExitedEmployees(

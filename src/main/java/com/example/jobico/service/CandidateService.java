@@ -22,7 +22,7 @@ public class CandidateService {
     @Autowired private UserRepository userRepository;
     @Autowired private EmailService emailService;
 
-    // ─── Create Profile ──────────────────────────────────────────────────────
+    // ─── Create Profile 
 
     @Transactional
     public CandidateResponse createProfile(String mobile, CandidateRequest request) {
@@ -49,8 +49,7 @@ public class CandidateService {
         return response;
     }
 
-    // ─── Get My Profile ──────────────────────────────────────────────────────
-
+    // ─── Get My Profile
     public CandidateResponse getMyProfile(String mobile) {
         User user = userRepository.findByMobile(mobile)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -59,7 +58,7 @@ public class CandidateService {
         return mapEntityToResponse(candidate);
     }
 
-    // ─── Update Profile ──────────────────────────────────────────────────────
+    // ─── Update Profile 
 
     @Transactional
     public CandidateResponse updateProfile(String mobile, CandidateRequest request) {
@@ -74,7 +73,7 @@ public class CandidateService {
         return mapEntityToResponse(candidateRepository.save(candidate));
     }
 
-    // ─── Delete Profile ──────────────────────────────────────────────────────
+    // ─── Delete Profile 
 
     @Transactional
     public void deleteProfile(String mobile) {
@@ -85,21 +84,21 @@ public class CandidateService {
         candidateRepository.delete(candidate);
     }
 
-    // ─── Get By ID (admin) ───────────────────────────────────────────────────
+    // ─── Get By ID (admin)
 
     public CandidateResponse getById(Long id) {
         return mapEntityToResponse(candidateRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Candidate not found: " + id)));
     }
 
-    // ─── Get All Paginated (admin) ───────────────────────────────────────────
+    // ─── Get All Paginated (admin)
 
     public Page<CandidateResponse> getAll(int page, int size) {
         return candidateRepository.findAll(PageRequest.of(page, size, Sort.by("id").descending()))
                 .map(this::mapEntityToResponse);
     }
 
-    // ─── Search & Filter (admin) ─────────────────────────────────────────────
+    // ─── Search & Filter (admin)
 
     public Page<CandidateResponse> searchByName(String name, int page, int size) {
         return candidateRepository.searchByName(name, PageRequest.of(page, size))
@@ -131,7 +130,7 @@ public class CandidateService {
                 .map(this::mapEntityToResponse);
     }
 
-    // ─── Update Status (admin) ───────────────────────────────────────────────
+    // ─── Update Status (admin) 
 
     @Transactional
     public CandidateResponse updateStatus(Long candidateId, CandidateStatus newStatus) {
@@ -147,17 +146,19 @@ public class CandidateService {
 
         if (email != null && !email.isBlank()) {
             switch (newStatus) {
-                case SHORTLISTED -> emailService.sendShortlistedEmail(email, name, role);
-                case SELECTED    -> emailService.sendSelectedEmail(email, name, role);
-                case REJECTED    -> emailService.sendRejectedEmail(email, name, role);
-                default          -> { /* APPLIED — no additional email */ }
+                case SHORTLISTED           -> emailService.sendShortlistedEmail(email, name, role);
+                case SELECTED              -> emailService.sendSelectedEmail(email, name, role);
+                case REJECTED              -> emailService.sendRejectedEmail(email, name, role);
+                case OFFER_LETTER_GENERATED,
+                     ONBOARDED             -> { }
+                default                    -> {  }
             }
         }
 
         return response;
     }
 
-    // ─── Resume ──────────────────────────────────────────────────────────────
+    // ─── Resume
 
     @Transactional
     public void updateResumePath(String mobile, String resumePath) {
@@ -177,7 +178,7 @@ public class CandidateService {
         return candidate.getResumePath();
     }
 
-    // ─── Mapper: Request → Entity ─────────────────────────────────────────────
+    // ─── Mapper:
 
     private Candidate mapRequestToEntity(Candidate candidate, CandidateRequest request) {
         candidate.setFirstName(request.getFirstName());
@@ -217,7 +218,7 @@ public class CandidateService {
         return candidate;
     }
 
-    // ─── Mapper: Entity → Response ───────────────────────────────────────────
+    // ─── Mapper
 
     public CandidateResponse mapEntityToResponse(Candidate candidate) {
         CandidateResponse response = new CandidateResponse();
@@ -277,7 +278,7 @@ public class CandidateService {
     Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
     Specification<Candidate> spec = Specification.where(null);
 
-    //  SEARCH (name + email + role)
+    //  SEARCH 
     if (search != null && !search.isBlank()) {
         spec = spec.and((root, query, cb) -> cb.or(
                 cb.like(cb.lower(root.get("firstName")), "%" + search.toLowerCase() + "%"),

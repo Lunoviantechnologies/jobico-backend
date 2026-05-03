@@ -21,8 +21,9 @@ public class EmployeeService {
         Candidate candidate = candidateRepository.findById(request.getCandidateId())
                 .orElseThrow(() -> new ResourceNotFoundException("Candidate not found"));
 
-        if (candidate.getStatus() != CandidateStatus.SELECTED)
-            throw new RuntimeException("Onboarding allowed only for SELECTED candidates.");
+        if (candidate.getStatus() != CandidateStatus.SELECTED
+                && candidate.getStatus() != CandidateStatus.OFFER_LETTER_GENERATED)
+            throw new RuntimeException("Onboarding allowed only for candidates with status SELECTED or OFFER_LETTER_GENERATED.");
 
         if (employeeRepository.existsByCandidateId(candidate.getId()))
             throw new RuntimeException("Employee already onboarded for this candidate.");
@@ -38,7 +39,12 @@ public class EmployeeService {
         emp.setIfscCode(request.getIfscCode());
         emp.setEmployeeStatus(EmployeeStatus.ACTIVE);
 
-        return toResponse(employeeRepository.save(emp));
+        Employee savedEmp = employeeRepository.save(emp);
+
+        candidate.setStatus(CandidateStatus.ONBOARDED);
+        candidateRepository.save(candidate);
+
+        return toResponse(savedEmp);
     }
 
     public OnboardingResponse getEmployee(Long employeeId) {

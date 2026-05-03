@@ -40,7 +40,7 @@ public class DocumentService {
     @Autowired private OfferLetterRepository        offerLetterRepository;
     @Autowired private ExperienceLetterRepository   experienceLetterRepository;
     @Autowired private EmailService                 emailService;
-    @Autowired private StorageService               storageService;
+    @Autowired private StorageService               storageService;   // LocalStorageService by default
 
     @Value("${app.company.name:Jobico}")
     private String companyName;
@@ -85,6 +85,10 @@ public class DocumentService {
             ol.setReferenceNumber(offerRef(c.getId()));
             ol.setGeneratedBy(currentUser());
             offerLetterRepository.save(ol);
+
+            // Move candidate out of SELECTED pool — they now have an offer letter
+            c.setStatus(CandidateStatus.OFFER_LETTER_GENERATED);
+            candidateRepository.save(c);
 
             log.info("Offer letter generated: ref={} candidate={}", ol.getReferenceNumber(), c.getId());
             return OfferLetterResponse.from(ol);
@@ -198,25 +202,6 @@ public class DocumentService {
         return storageService.load(el.getPdfUrl());
     }
 
-    /**
-     * FIX: New method used by the employee self-service endpoint.
-     *
-     * Loads the most recently admin-generated experience letter for the given
-     * employee and returns the raw PDF bytes ready to stream back.
-     *
-     * Throws ResourceNotFoundException (→ 404) when no letter has been
-     * generated yet — the employee should contact HR.
-     */
-    @Transactional(readOnly = true)
-    public byte[] downloadLatestExperienceLetterForEmployee(Long employeeId) {
-        ExperienceLetter el = experienceLetterRepository
-                .findTopByEmployeeIdOrderByGeneratedAtDesc(employeeId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "No experience letter found for employee: " + employeeId
-                        + ". Please contact HR."));
-        return storageService.load(el.getPdfUrl());
-    }
-
     @Transactional
     public void sendExperienceLetterByEmail(Long experienceLetterId) {
         ExperienceLetter el = experienceLetterRepository.findById(experienceLetterId)
@@ -287,7 +272,7 @@ public class DocumentService {
                 body { font-family:Arial,Helvetica,sans-serif; font-size:10pt; color:#2c2c2c; background:#f0f4f8; }
                 .page { width:720px; margin:20px auto; background:#fff; border:1px solid #d0d7de; border-radius:8px; overflow:hidden; }
                 .header { background:#0f2557; padding:22px 36px; }
-                .header-row { display:table; width:100%%; }
+                .header-row { display:table; width:100%; }
                 .header-left { display:table-cell; vertical-align:middle; }
                 .header-right { display:table-cell; vertical-align:middle; text-align:right; }
                 .logo-box { width:44px; height:44px; background:#1a73e8; border-radius:8px;
@@ -305,16 +290,16 @@ public class DocumentService {
                 .section-title { font-size:9pt; font-weight:bold; color:#0f2557; letter-spacing:1px;
                                  text-transform:uppercase; background:#e8f0fe; padding:7px 12px;
                                  border-left:4px solid #1a73e8; margin:20px 0 10px 0; }
-                .detail-table { width:100%%; border-collapse:collapse; }
+                .detail-table { width:100%; border-collapse:collapse; }
                 .detail-table tr:nth-child(even) { background:#f8fafc; }
                 .detail-table td { padding:8px 12px; font-size:9.5pt; border-bottom:1px solid #edf2f7; }
-                .detail-table td:first-child { font-weight:bold; color:#374151; width:42%%; }
+                .detail-table td:first-child { font-weight:bold; color:#374151; width:42%; }
                 .accept-box { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px;
                               padding:14px 18px; margin:22px 0; }
                 .accept-box p { font-size:9pt; color:#166534; line-height:1.6; }
-                .sign-area { display:table; width:100%%; margin-top:30px; }
-                .sign-left { display:table-cell; width:50%%; vertical-align:bottom; }
-                .sign-right { display:table-cell; width:50%%; text-align:right; vertical-align:bottom; }
+                .sign-area { display:table; width:100%; margin-top:30px; }
+                .sign-left { display:table-cell; width:50%; vertical-align:bottom; }
+                .sign-right { display:table-cell; width:50%; text-align:right; vertical-align:bottom; }
                 .sign-line { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; }
                 .sign-line-right { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; margin-left:auto; }
                 .sign-label { font-size:8pt; color:#6b7280; }
@@ -438,7 +423,7 @@ public class DocumentService {
                 body { font-family:Arial,Helvetica,sans-serif; font-size:10pt; color:#2c2c2c; }
                 .page { width:720px; margin:20px auto; background:#fff; border:1px solid #d0d7de; border-radius:8px; overflow:hidden; }
                 .header { background:#0f2557; padding:22px 36px; }
-                .header-row { display:table; width:100%%; }
+                .header-row { display:table; width:100%; }
                 .header-left { display:table-cell; vertical-align:middle; }
                 .header-right { display:table-cell; vertical-align:middle; text-align:right; }
                 .logo-box { width:44px; height:44px; background:#1a73e8; border-radius:8px;
@@ -450,7 +435,7 @@ public class DocumentService {
                              font-size:9pt; font-weight:bold; letter-spacing:1px; }
                 .doc-date { font-size:9pt; color:#a8c7fa; margin-top:6px; }
                 .cert-band { background:#1a73e8; padding:10px 36px; }
-                .cert-text { font-size:9pt; color:#cfe2ff; display:table; width:100%%; }
+                .cert-text { font-size:9pt; color:#cfe2ff; display:table; width:100%; }
                 .cert-cell { display:table-cell; padding-right:24px; }
                 .cert-cell span { color:#fff; font-weight:bold; }
                 .body { padding:30px 36px; }
@@ -460,17 +445,17 @@ public class DocumentService {
                 .para { font-size:9.5pt; color:#374151; line-height:1.8; margin-bottom:16px; }
                 .info-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;
                              padding:18px 22px; margin:20px 0; }
-                .info-grid { display:table; width:100%%; }
-                .info-col { display:table-cell; width:50%%; vertical-align:top; padding-right:20px; }
+                .info-grid { display:table; width:100%; }
+                .info-col { display:table-cell; width:50%; vertical-align:top; padding-right:20px; }
                 .info-item { margin-bottom:12px; }
                 .info-label { font-size:7.5pt; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; }
                 .info-value { font-size:10pt; font-weight:bold; color:#1e293b; }
                 .remarks-box { background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px;
                                padding:14px 18px; margin:18px 0; }
                 .remarks-box p { font-size:9.5pt; color:#1e40af; line-height:1.6; font-style:italic; }
-                .sign-area { display:table; width:100%%; margin-top:36px; }
-                .sign-left { display:table-cell; width:50%%; vertical-align:bottom; }
-                .sign-right { display:table-cell; width:50%%; text-align:right; vertical-align:bottom; }
+                .sign-area { display:table; width:100%; margin-top:36px; }
+                .sign-left { display:table-cell; width:50%; vertical-align:bottom; }
+                .sign-right { display:table-cell; width:50%; text-align:right; vertical-align:bottom; }
                 .sign-line { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; }
                 .sign-line-right { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; margin-left:auto; }
                 .sign-label { font-size:8pt; color:#6b7280; }
