@@ -30,8 +30,16 @@ public class Employee {
     private String bankName;
     private String ifscCode;
     private double salary;
+    @Column(name = "last_working_day")
+    private LocalDate lastWorkingDay;
 
-    @Enumerated(EnumType.STRING)
+    public LocalDate getLastWorkingDay() {
+		return lastWorkingDay;
+	}
+	public void setLastWorkingDay(LocalDate lastWorkingDay) {
+		this.lastWorkingDay = lastWorkingDay;
+	}
+	@Enumerated(EnumType.STRING)
     private EmployeeStatus employeeStatus = EmployeeStatus.ACTIVE;
 
     public Long getId() { return id; }

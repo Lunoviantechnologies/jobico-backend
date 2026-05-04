@@ -139,6 +139,9 @@ public class EmployeeManagementService {
             if (request.getEmail() != null) {
                 emp.getCandidate().setEmail(request.getEmail());
             }
+            if (request.getLastWorkingDay() != null) {
+                emp.setLastWorkingDay(request.getLastWorkingDay());
+            }
 
             if (emp.getCandidate().getUser() != null &&
                 request.getMobile() != null) {

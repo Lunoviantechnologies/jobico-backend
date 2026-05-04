@@ -3,6 +3,7 @@ package com.example.jobico.dto;
 import com.example.jobico.entity.EmployeeStatus;
 import jakarta.validation.constraints.*;
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 public class EmployeeUpdateRequest {
 
@@ -17,6 +18,14 @@ public class EmployeeUpdateRequest {
     private EmployeeStatus status;
     private String mobile;
     private String email;
+    private LocalDate lastWorkingDay;
+    
+	public LocalDate getLastWorkingDay() {
+		return lastWorkingDay;
+	}
+	public void setLastWorkingDay(LocalDate lastWorkingDay) {
+		this.lastWorkingDay = lastWorkingDay;
+	}
 	public String getDepartment() {
 		return department;
 	}
@@ -77,6 +86,7 @@ public class EmployeeUpdateRequest {
 	public void setEmail(String email) {
 		this.email = email;
 	}
+	
 
     
 }
