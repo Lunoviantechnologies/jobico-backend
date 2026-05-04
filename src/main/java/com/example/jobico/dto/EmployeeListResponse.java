@@ -17,6 +17,7 @@ public class EmployeeListResponse {
     private String mobile;
     private String email;
     private double salary;
+    private LocalDate lastWorkingDay;
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -51,5 +52,11 @@ public class EmployeeListResponse {
     public void setEmail(String email) { this.email = email; }
 	public double getSalary() {return salary;}
 	public void setSalary(double salary) {this.salary = salary;}
+	public LocalDate getLastWorkingDay() {
+		return lastWorkingDay;
+	}
+	public void setLastWorkingDay(LocalDate lastWorkingDay) {
+		this.lastWorkingDay = lastWorkingDay;
+	}
     
 }

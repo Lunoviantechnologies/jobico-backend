@@ -77,12 +77,7 @@ public class AdminController {
         return ResponseEntity.ok(candidateService.getCandidates(search, "SELECTED", category, page, size));
     }
 
-    /**
-     * Candidates whose offer letter has been generated but who have NOT yet been onboarded.
-     * Use this list to track / manage candidates pending onboarding.
-     *
-     * GET /api/admin/candidates/offer-letter-generated
-     */
+   
     @GetMapping("/candidates/offer-letter-generated")
     public ResponseEntity<Page<CandidateResponse>> getOfferLetterGeneratedCandidates(
             @RequestParam(required = false) String search,
@@ -94,24 +89,13 @@ public class AdminController {
 
     // ── Offer Letters 
 
-    /**
-     * STEP 1 — Generate and persist the offer letter PDF.
-     * Returns metadata only (no bytes). Admin sees it in the list immediately.
-     *
-     * POST /api/admin/offer-letter/generate
-     * { "candidateId": 1, "salary": 600000.00, "joiningDate": "2026-06-01" }
-     */
+   
     @PostMapping("/offer-letter/generate")
     public ResponseEntity<OfferLetterResponse> generateOfferLetter(
             @Valid @RequestBody OfferLetterRequest request) {
         return ResponseEntity.ok(documentService.generateAndSaveOfferLetter(request));
     }
 
-    /**
-     * STEP 2a — Preview / download the stored PDF in browser.
-     *
-     * GET /api/admin/offer-letter/{id}/download
-     */
     @GetMapping("/offer-letter/{id}/download")
     public ResponseEntity<byte[]> downloadOfferLetter(@PathVariable Long id) {
         byte[] pdf = documentService.downloadOfferLetter(id);
@@ -123,9 +107,6 @@ public class AdminController {
 
     /**
      * STEP 2b — Email the already-generated PDF to the candidate.
-     * Can be called again to re-send (e.g. candidate missed the email).
-     *
-     * POST /api/admin/offer-letter/{id}/send
      */
     @PostMapping("/offer-letter/{id}/send")
     public ResponseEntity<ApiResponse> sendOfferLetterByEmail(@PathVariable Long id) {
@@ -135,8 +116,6 @@ public class AdminController {
 
     /**
      * One-shot — generate + persist + email atomically.
-     *
-     * POST /api/admin/offer-letter/generate-and-send
      */
     @PostMapping("/offer-letter/generate-and-send")
     public ResponseEntity<OfferLetterResponse> generateAndSendOfferLetter(
@@ -144,11 +123,7 @@ public class AdminController {
         return ResponseEntity.ok(documentService.generateSaveAndSendOfferLetter(request));
     }
 
-    /**
-     * Admin dashboard — paginated list of all offer letters.
-     *
-     * GET /api/admin/offer-letter?search=John&page=0&size=10
-     */
+   
     @GetMapping("/offer-letter")
     public ResponseEntity<Page<OfferLetterResponse>> listOfferLetters(
             @RequestParam(required = false) String search,
@@ -159,8 +134,6 @@ public class AdminController {
 
     /**
      * History — all offer letters for a specific candidate.
-     *
-     * GET /api/admin/candidates/{id}/offer-letters
      */
     @GetMapping("/candidates/{id}/offer-letters")
     public ResponseEntity<List<OfferLetterResponse>> getOfferLettersForCandidate(@PathVariable Long id) {
@@ -249,15 +222,9 @@ public class AdminController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        Page<EmployeeListResponse> resigned =
-                employeeManagementService.listEmployees(search, department, EmployeeStatus.RESIGNED, page, size);
-        Page<EmployeeListResponse> terminated =
-                employeeManagementService.listEmployees(search, department, EmployeeStatus.TERMINATED, page, size);
+        Page<EmployeeListResponse> result =
+                employeeManagementService.listExitedEmployees(search, department, page, size);
 
-        List<EmployeeListResponse> combined = new ArrayList<>();
-        combined.addAll(resigned.getContent());
-        combined.addAll(terminated.getContent());
-
-        return ResponseEntity.ok(new PageImpl<>(combined, PageRequest.of(page, size), combined.size()));
+        return ResponseEntity.ok(result);
     }
 }

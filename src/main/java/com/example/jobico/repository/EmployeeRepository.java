@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface EmployeeRepository extends JpaRepository<Employee, Long> {
@@ -34,4 +35,35 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
     long countByEmployeeStatus(EmployeeStatus status);
     @Query("SELECT e FROM Employee e WHERE e.candidate.user.mobile = :mobile")
     Optional<Employee> findByUserMobile(@Param("mobile") String mobile);
+    @Query("""
+    	    SELECT e FROM Employee e
+    	    WHERE (:search IS NULL OR
+    	           LOWER(e.candidate.firstName) LIKE LOWER(CONCAT('%', :search, '%')) OR
+    	           LOWER(e.candidate.surname) LIKE LOWER(CONCAT('%', :search, '%')))
+    	    AND (:department IS NULL OR e.department = :department)
+    	    AND e.employeeStatus IN :statuses
+    	""")
+    	Page<Employee> findExitedEmployees(
+    	        @Param("search") String search,
+    	        @Param("department") String department,
+    	        @Param("statuses") List<EmployeeStatus> statuses,
+    	        Pageable pageable
+    	);
+    @Query("""
+            SELECT e FROM Employee e
+            WHERE e.employeeStatus IN :statuses
+            AND (:search IS NULL OR
+                 LOWER(e.candidate.firstName) LIKE LOWER(CONCAT('%', :search, '%')) OR
+                 LOWER(e.candidate.surname)   LIKE LOWER(CONCAT('%', :search, '%')))
+            AND (:department IS NULL OR e.department = :department)
+            AND e.id NOT IN (
+                SELECT el.employee.id FROM ExperienceLetter el
+            )
+            """)
+    Page<Employee> findExitedEmployeesWithoutExperienceLetter(
+            @Param("search") String search,
+            @Param("department") String department,
+            @Param("statuses") List<EmployeeStatus> statuses,
+            Pageable pageable
+    );
 }

@@ -1,5 +1,15 @@
 package com.example.jobico.service;
 
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.example.jobico.dto.EmployeeListResponse;
 import com.example.jobico.dto.EmployeeStatusUpdateRequest;
 import com.example.jobico.dto.EmployeeUpdateRequest;
@@ -7,10 +17,6 @@ import com.example.jobico.entity.Employee;
 import com.example.jobico.entity.EmployeeStatus;
 import com.example.jobico.exception.ResourceNotFoundException;
 import com.example.jobico.repository.EmployeeRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.*;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class EmployeeManagementService {
@@ -79,6 +85,7 @@ public class EmployeeManagementService {
         r.setMobile(emp.getCandidate().getUser().getMobile());
         r.setEmail(emp.getCandidate().getEmail());
         r.setSalary(emp.getSalary());
+        r.setLastWorkingDay(emp.getLastWorkingDay());
 
         // Mask bank account: show last 4 digits only, e.g. "HDFC ****4521"
         String bankName = emp.getBankName();
@@ -152,5 +159,43 @@ public class EmployeeManagementService {
         Employee updated = employeeRepository.save(emp);
 
         return toListResponse(updated);
+    }
+    public Page<EmployeeListResponse> listExitedEmployees(
+            String search,
+            String department,
+            int page,
+            int size
+    ) {
+        List<EmployeeStatus> statuses = List.of(
+                EmployeeStatus.RESIGNED,
+                EmployeeStatus.TERMINATED
+        );
+
+        Pageable pageable = PageRequest.of(page, size);
+
+        Page<Employee> employees = employeeRepository.findExitedEmployees(
+                search, department, statuses, pageable
+        );
+
+        return employees.map(this::toListResponse);
+    }
+    public Page<EmployeeListResponse> listExitedEmployeesWithoutExpLetter(
+            String search,
+            String department,
+            int page,
+            int size
+    ) {
+        List<EmployeeStatus> statuses = List.of(
+                EmployeeStatus.RESIGNED,
+                EmployeeStatus.TERMINATED
+        );
+ 
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+ 
+        Page<Employee> employees = employeeRepository.findExitedEmployeesWithoutExperienceLetter(
+                search, department, statuses, pageable
+        );
+ 
+        return employees.map(this::toListResponse);
     }
 }

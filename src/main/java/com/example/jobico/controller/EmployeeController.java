@@ -100,4 +100,18 @@ public class EmployeeController {
                 employeeManagementService.updateEmployee(id, request)
         );
     }
+    
+    @GetMapping("/exited/pending-experience-letter")
+    public ResponseEntity<Page<EmployeeListResponse>> getExitedEmployeesPendingExpLetter(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String department,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+ 
+        Page<EmployeeListResponse> result =
+                employeeManagementService.listExitedEmployeesWithoutExpLetter(
+                        search, department, page, size);
+ 
+        return ResponseEntity.ok(result);
+    }
 }
