@@ -40,7 +40,7 @@ public class DocumentService {
     @Autowired private OfferLetterRepository        offerLetterRepository;
     @Autowired private ExperienceLetterRepository   experienceLetterRepository;
     @Autowired private EmailService                 emailService;
-    @Autowired private StorageService               storageService;   // LocalStorageService by default
+    @Autowired private StorageService               storageService;
 
     @Value("${app.company.name:Jobico}")
     private String companyName;
@@ -59,10 +59,6 @@ public class DocumentService {
     //  OFFER LETTER
     // ══════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Generate PDF → store on disk → persist DB record.
-     * Returns metadata (no PDF bytes in response).
-     */
     @Transactional
     public OfferLetterResponse generateAndSaveOfferLetter(OfferLetterRequest request) {
         Candidate c = candidateRepository.findById(request.getCandidateId())
@@ -86,7 +82,6 @@ public class DocumentService {
             ol.setGeneratedBy(currentUser());
             offerLetterRepository.save(ol);
 
-            // Move candidate out of SELECTED pool — they now have an offer letter
             c.setStatus(CandidateStatus.OFFER_LETTER_GENERATED);
             candidateRepository.save(c);
 
@@ -98,10 +93,6 @@ public class DocumentService {
         }
     }
 
-    /**
-     * Load the PDF bytes from disk and return them for streaming.
-     * Throws 404 if the record or file is missing.
-     */
     @Transactional(readOnly = true)
     public byte[] downloadOfferLetter(Long offerLetterId) {
         OfferLetter ol = offerLetterRepository.findById(offerLetterId)
@@ -109,10 +100,6 @@ public class DocumentService {
         return storageService.load(ol.getPdfUrl());
     }
 
-    /**
-     * Email the stored PDF to the candidate. Marks emailSent = true.
-     * Safe to call multiple times (admin can re-send).
-     */
     @Transactional
     public void sendOfferLetterByEmail(Long offerLetterId) {
         OfferLetter ol = offerLetterRepository.findById(offerLetterId)
@@ -139,7 +126,6 @@ public class DocumentService {
         log.info("Offer letter emailed: ref={} to={}", ol.getReferenceNumber(), email);
     }
 
-    /** One-shot convenience: generate + save + email. */
     @Transactional
     public OfferLetterResponse generateSaveAndSendOfferLetter(OfferLetterRequest request) {
         OfferLetterResponse saved = generateAndSaveOfferLetter(request);
@@ -147,7 +133,6 @@ public class DocumentService {
         return saved;
     }
 
-    /** Paginated list for admin dashboard. */
     @Transactional(readOnly = true)
     public Page<OfferLetterResponse> listOfferLetters(String search, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
@@ -155,7 +140,6 @@ public class DocumentService {
         return offerLetterRepository.search(q, pageable).map(OfferLetterResponse::from);
     }
 
-    /** All offer letters for a single candidate (history view). */
     @Transactional(readOnly = true)
     public List<OfferLetterResponse> getOfferLettersForCandidate(Long candidateId) {
         return offerLetterRepository.findByCandidateIdOrderByGeneratedAtDesc(candidateId)
@@ -172,7 +156,7 @@ public class DocumentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + request.getEmployeeId()));
 
         try {
-            byte[] pdf      = buildExperienceLetterPdf(emp, request.getRemarks());
+        	    byte[] pdf = buildExperienceLetterPdf(emp, request.getRemarks(), request.getLastWorkingDay());
             Candidate c     = emp.getCandidate();
             String filename = "ExperienceLetter_" + safe(c.getFirstName()) + "_" + safe(c.getSurname())
                             + "_" + uuid() + ".pdf";
@@ -183,7 +167,7 @@ public class DocumentService {
             el.setRemarks(request.getRemarks());
             el.setPdfUrl(pdfUrl);
             el.setReferenceNumber(experienceRef(emp.getId()));
-            el.setLastWorkingDay(LocalDate.now());
+            el.setLastWorkingDay(request.getLastWorkingDay());
             el.setGeneratedBy(currentUser());
             experienceLetterRepository.save(el);
 
@@ -248,6 +232,23 @@ public class DocumentService {
                 .stream().map(ExperienceLetterResponse::from).toList();
     }
 
+    /**
+     * Returns the PDF bytes of the most recently generated experience letter for an employee.
+     * Throws ResourceNotFoundException if HR has not yet generated any letter.
+     */
+    @Transactional(readOnly = true)
+    public byte[] downloadLatestExperienceLetterForEmployee(Long employeeId) {
+        List<ExperienceLetter> letters =
+                experienceLetterRepository.findByEmployeeIdOrderByGeneratedAtDesc(employeeId);
+
+        if (letters.isEmpty())
+            throw new ResourceNotFoundException(
+                    "No experience letter has been generated yet for employee: " + employeeId);
+
+        ExperienceLetter latest = letters.get(0);
+        return storageService.load(latest.getPdfUrl());
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     //  PDF BUILDERS
     // ══════════════════════════════════════════════════════════════════════════
@@ -272,7 +273,7 @@ public class DocumentService {
                 body { font-family:Arial,Helvetica,sans-serif; font-size:10pt; color:#2c2c2c; background:#f0f4f8; }
                 .page { width:720px; margin:20px auto; background:#fff; border:1px solid #d0d7de; border-radius:8px; overflow:hidden; }
                 .header { background:#0f2557; padding:22px 36px; }
-                .header-row { display:table; width:100%; }
+                .header-row { display:table; width:100%%; }
                 .header-left { display:table-cell; vertical-align:middle; }
                 .header-right { display:table-cell; vertical-align:middle; text-align:right; }
                 .logo-box { width:44px; height:44px; background:#1a73e8; border-radius:8px;
@@ -290,16 +291,16 @@ public class DocumentService {
                 .section-title { font-size:9pt; font-weight:bold; color:#0f2557; letter-spacing:1px;
                                  text-transform:uppercase; background:#e8f0fe; padding:7px 12px;
                                  border-left:4px solid #1a73e8; margin:20px 0 10px 0; }
-                .detail-table { width:100%; border-collapse:collapse; }
+                .detail-table { width:100%%; border-collapse:collapse; }
                 .detail-table tr:nth-child(even) { background:#f8fafc; }
                 .detail-table td { padding:8px 12px; font-size:9.5pt; border-bottom:1px solid #edf2f7; }
-                .detail-table td:first-child { font-weight:bold; color:#374151; width:42%; }
+                .detail-table td:first-child { font-weight:bold; color:#374151; width:42%%; }
                 .accept-box { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px;
                               padding:14px 18px; margin:22px 0; }
                 .accept-box p { font-size:9pt; color:#166534; line-height:1.6; }
-                .sign-area { display:table; width:100%; margin-top:30px; }
-                .sign-left { display:table-cell; width:50%; vertical-align:bottom; }
-                .sign-right { display:table-cell; width:50%; text-align:right; vertical-align:bottom; }
+                .sign-area { display:table; width:100%%; margin-top:30px; }
+                .sign-left { display:table-cell; width:50%%; vertical-align:bottom; }
+                .sign-right { display:table-cell; width:50%%; text-align:right; vertical-align:bottom; }
                 .sign-line { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; }
                 .sign-line-right { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; margin-left:auto; }
                 .sign-label { font-size:8pt; color:#6b7280; }
@@ -391,10 +392,10 @@ public class DocumentService {
         );
         return renderPdf(html);
     }
-
-    private byte[] buildExperienceLetterPdf(Employee emp, String remarks) throws DocumentException {
+    private byte[] buildExperienceLetterPdf(Employee emp, String remarks, LocalDate lastWorkingDay) throws DocumentException {
         Candidate c     = emp.getCandidate();
         String today    = DATE_FMT.format(LocalDate.now());
+        String lastWorking = DATE_FMT.format(lastWorkingDay);
         String fromDate = DATE_FMT.format(emp.getJoiningDate());
         String name     = c.getFirstName() + " " + c.getSurname();
 
@@ -423,7 +424,7 @@ public class DocumentService {
                 body { font-family:Arial,Helvetica,sans-serif; font-size:10pt; color:#2c2c2c; }
                 .page { width:720px; margin:20px auto; background:#fff; border:1px solid #d0d7de; border-radius:8px; overflow:hidden; }
                 .header { background:#0f2557; padding:22px 36px; }
-                .header-row { display:table; width:100%; }
+                .header-row { display:table; width:100%%; }
                 .header-left { display:table-cell; vertical-align:middle; }
                 .header-right { display:table-cell; vertical-align:middle; text-align:right; }
                 .logo-box { width:44px; height:44px; background:#1a73e8; border-radius:8px;
@@ -435,7 +436,7 @@ public class DocumentService {
                              font-size:9pt; font-weight:bold; letter-spacing:1px; }
                 .doc-date { font-size:9pt; color:#a8c7fa; margin-top:6px; }
                 .cert-band { background:#1a73e8; padding:10px 36px; }
-                .cert-text { font-size:9pt; color:#cfe2ff; display:table; width:100%; }
+                .cert-text { font-size:9pt; color:#cfe2ff; display:table; width:100%%; }
                 .cert-cell { display:table-cell; padding-right:24px; }
                 .cert-cell span { color:#fff; font-weight:bold; }
                 .body { padding:30px 36px; }
@@ -445,17 +446,17 @@ public class DocumentService {
                 .para { font-size:9.5pt; color:#374151; line-height:1.8; margin-bottom:16px; }
                 .info-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;
                              padding:18px 22px; margin:20px 0; }
-                .info-grid { display:table; width:100%; }
-                .info-col { display:table-cell; width:50%; vertical-align:top; padding-right:20px; }
+                .info-grid { display:table; width:100%%; }
+                .info-col { display:table-cell; width:50%%; vertical-align:top; padding-right:20px; }
                 .info-item { margin-bottom:12px; }
                 .info-label { font-size:7.5pt; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; }
                 .info-value { font-size:10pt; font-weight:bold; color:#1e293b; }
                 .remarks-box { background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px;
                                padding:14px 18px; margin:18px 0; }
                 .remarks-box p { font-size:9.5pt; color:#1e40af; line-height:1.6; font-style:italic; }
-                .sign-area { display:table; width:100%; margin-top:36px; }
-                .sign-left { display:table-cell; width:50%; vertical-align:bottom; }
-                .sign-right { display:table-cell; width:50%; text-align:right; vertical-align:bottom; }
+                .sign-area { display:table; width:100%%; margin-top:36px; }
+                .sign-left { display:table-cell; width:50%%; vertical-align:bottom; }
+                .sign-right { display:table-cell; width:50%%; text-align:right; vertical-align:bottom; }
                 .sign-line { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; }
                 .sign-line-right { border-top:1px solid #94a3b8; width:160px; margin-bottom:4px; margin-left:auto; }
                 .sign-label { font-size:8pt; color:#6b7280; }
@@ -494,7 +495,7 @@ public class DocumentService {
                   This is to certify that <span class="highlight">%s</span> was employed with
                   <span class="highlight">%s</span> as <span class="highlight">%s</span>
                   in the <span class="highlight">%s</span> department.
-                  Tenure: <b>%s</b> to <b>%s</b> — a period of <b>%s</b>.
+                  <div class="info-value">%s</div> — a period of <b>%s</b>.
                 </p>
                 <p class="para">
                   During employment, %s demonstrated high professionalism, dedication and
