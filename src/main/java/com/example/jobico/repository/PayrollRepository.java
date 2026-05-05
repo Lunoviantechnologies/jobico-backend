@@ -21,4 +21,8 @@ public interface PayrollRepository extends JpaRepository<Payroll, Long>,JpaSpeci
     // ── NEW: Dashboard ────────────────────────────────────────────
     @Query("SELECT COALESCE(SUM(p.netSalary), 0) FROM Payroll p WHERE p.month = :month AND p.year = :year")
     double sumNetSalaryByMonthAndYear(@Param("month") int month, @Param("year") int year);
+    List<Payroll> findByEmployeeEmployeeId(String employeeId);
+
+    Optional<Payroll> findByEmployeeEmployeeIdAndMonthAndYear(
+            String employeeId, int month, int year);
 }

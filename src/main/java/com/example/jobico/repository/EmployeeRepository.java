@@ -66,4 +66,6 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
             @Param("statuses") List<EmployeeStatus> statuses,
             Pageable pageable
     );
+    Optional<Employee> findByEmployeeId(String employeeId);
+    boolean existsByEmployeeId(String employeeId);
 }

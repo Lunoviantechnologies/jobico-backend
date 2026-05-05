@@ -6,8 +6,15 @@ import jakarta.validation.constraints.NotNull;
 
 public class PayrollRequest {
 
+    // ── Used by the manual single-run API (admin sends the DB primary key as Long) ──
     @NotNull(message = "Employee ID is required")
     private Long employeeId;
+
+    // ✅ NEW: Used by the Excel bulk-upload path.
+    // Excel column A contains the human-readable employeeId string (e.g. "EMP-ABC123").
+    // ExcelParsingService sets this field; PayrollService reads it to look up the employee
+    // via EmployeeRepository.findByEmployeeId(String).
+    private String employeeIdStr;
 
     @Min(value = 1, message = "Month must be between 1 and 12")
     @Max(value = 12, message = "Month must be between 1 and 12")
@@ -23,6 +30,10 @@ public class PayrollRequest {
 
     public Long getEmployeeId() { return employeeId; }
     public void setEmployeeId(Long employeeId) { this.employeeId = employeeId; }
+
+    public String getEmployeeIdStr() { return employeeIdStr; }
+    public void setEmployeeIdStr(String employeeIdStr) { this.employeeIdStr = employeeIdStr; }
+
     public int getMonth() { return month; }
     public void setMonth(int month) { this.month = month; }
     public int getYear() { return year; }

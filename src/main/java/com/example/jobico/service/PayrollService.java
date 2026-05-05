@@ -23,11 +23,12 @@ public class PayrollService {
     @Autowired private PayrollRepository payrollRepository;
     @Autowired private EmployeeRepository employeeRepository;
 
-    // ── SINGLE PAYROLL ────────────────────────────────────────────────────────
+    // ── SINGLE PAYROLL (manual API — uses numeric DB id) ─────────────────────
     @Transactional
     public PayrollResponse runPayroll(PayrollRequest request) {
         Employee emp = employeeRepository.findById(request.getEmployeeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + request.getEmployeeId()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Employee not found: " + request.getEmployeeId()));
 
         if (emp.getEmployeeStatus() != EmployeeStatus.ACTIVE)
             throw new RuntimeException("Payroll can only be run for ACTIVE employees.");
@@ -35,12 +36,16 @@ public class PayrollService {
         if (payrollRepository.findByEmployeeIdAndMonthAndYear(
                 emp.getId(), request.getMonth(), request.getYear()).isPresent())
             throw new RuntimeException("Payroll already processed for employee "
-                    + emp.getId() + " for " + request.getMonth() + "/" + request.getYear());
+                    + emp.getEmployeeId() + " for " + request.getMonth() + "/" + request.getYear());
 
         return toResponse(payrollRepository.save(buildPayroll(emp, request)));
     }
 
     // ── BULK PAYROLL (from Excel) ─────────────────────────────────────────────
+    // Each PayrollRequest coming from ExcelParsingService has employeeIdStr set
+    // (the human-readable "EMP-XXXX" value from column A).
+    // We must NOT use findById(Long) here — that is the DB primary key, not the
+    // business-level employeeId stored in the employees.employee_id column.
     @Transactional
     public BulkUploadResponse runBulkPayroll(List<PayrollRequest> requests) {
         List<PayrollResponse> processed = new ArrayList<>();
@@ -48,23 +53,26 @@ public class PayrollService {
 
         for (int i = 0; i < requests.size(); i++) {
             PayrollRequest req = requests.get(i);
+            String empIdStr = req.getEmployeeIdStr();   // e.g. "EMP-ABC123"
             try {
-                Employee emp = employeeRepository.findById(req.getEmployeeId())
+                // ✅ FIX: look up by the String employeeId column, not the Long PK.
+                Employee emp = employeeRepository.findByEmployeeId(empIdStr)
                         .orElseThrow(() -> new ResourceNotFoundException(
-                                "Employee ID " + req.getEmployeeId() + " not found"));
+                                "Employee ID \"" + empIdStr + "\" not found. "
+                                + "Make sure column A contains the EMP-XXXX code, not a number."));
 
                 if (emp.getEmployeeStatus() != EmployeeStatus.ACTIVE)
-                    throw new RuntimeException("Employee " + req.getEmployeeId() + " is not ACTIVE");
+                    throw new RuntimeException("Employee " + empIdStr + " is not ACTIVE");
 
                 if (payrollRepository.findByEmployeeIdAndMonthAndYear(
                         emp.getId(), req.getMonth(), req.getYear()).isPresent())
                     throw new RuntimeException("Payroll already exists for employee "
-                            + req.getEmployeeId() + " — " + req.getMonth() + "/" + req.getYear());
+                            + empIdStr + " — " + req.getMonth() + "/" + req.getYear());
 
                 processed.add(toResponse(payrollRepository.save(buildPayroll(emp, req))));
 
             } catch (Exception e) {
-                errors.add("Row " + (i + 2) + " (EmpID " + req.getEmployeeId() + "): " + e.getMessage());
+                errors.add("Row " + (i + 2) + " (EmpID " + empIdStr + "): " + e.getMessage());
             }
         }
 
@@ -76,7 +84,7 @@ public class PayrollService {
                 processed
         );
     }
-    
+
     public Page<PayrollResponse> getAllPayslips(
             Long employeeId,
             Integer year,
@@ -97,7 +105,6 @@ public class PayrollService {
 
         Specification<Payroll> spec = Specification.where(null);
 
-        // ✅ Filter: employeeId
         if (employeeId != null) {
             spec = spec.and((root, query, cb) ->
                     cb.equal(root.get("employee").get("id"), employeeId));
@@ -106,18 +113,18 @@ public class PayrollService {
             spec = spec.and((root, query, cb) ->
                     cb.equal(root.get("year"), year));
         }
+        // ✅ FIX: month is an int column — parse to Integer, do NOT use cb.lower()
         if (month != null && !month.isBlank()) {
-            spec = spec.and((root, query, cb) ->
-                    cb.equal(
-                            cb.lower(root.get("month")),
-                            month.trim().toLowerCase()
-                    ));
+            try {
+                int monthInt = Integer.parseInt(month.trim());
+                spec = spec.and((root, query, cb) ->
+                        cb.equal(root.get("month"), monthInt));
+            } catch (NumberFormatException ignored) {
+                // invalid month value — ignore filter rather than crash
+            }
         }
 
-      
-        Page<Payroll> payrollPage = payrollRepository.findAll(spec, pageable);
-
-        return payrollPage.map(this::toResponse);
+        return payrollRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
     // ── ADMIN: ALL PAYSLIPS FOR EMPLOYEE ─────────────────────────────────────
@@ -137,7 +144,8 @@ public class PayrollService {
     // ── GET SINGLE PAYROLL (for PDF generation) ───────────────────────────────
     public PayrollResponse getPayrollById(Long payrollId) {
         Payroll p = payrollRepository.findById(payrollId)
-                .orElseThrow(() -> new ResourceNotFoundException("Payroll record not found: " + payrollId));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Payroll record not found: " + payrollId));
         return toResponse(p);
     }
 
@@ -163,6 +171,7 @@ public class PayrollService {
         p.setAllowances(req.getAllowances());
         p.setDeductions(req.getDeductions());
         p.setNetSalary(net);
+        p.setMonthOrder(req.getMonth());   // ✅ FIX: keep monthOrder in sync
         p.setPaymentStatus(PaymentStatus.PAID);
         p.setPaymentDate(LocalDate.now());
         return p;
@@ -170,12 +179,15 @@ public class PayrollService {
 
     // ── HELPER: Entity → DTO ──────────────────────────────────────────────────
     private PayrollResponse toResponse(Payroll p) {
+        Employee e = p.getEmployee();
+        Candidate c = e.getCandidate();
         PayrollResponse r = new PayrollResponse();
         r.setId(p.getId());
-        r.setEmployeeId(p.getEmployee().getEmployeeId());
-        r.setEmployeeName(p.getEmployee().getCandidate().getFirstName()
-                + " " + p.getEmployee().getCandidate().getSurname());
-        r.setDepartment(p.getEmployee().getDepartment());
+        r.setEmployeeId(e.getEmployeeId());
+        r.setEmployeeName(c != null
+                ? c.getFirstName() + " " + c.getSurname()
+                : "Unknown");          // ✅ FIX: null-safe candidate
+        r.setDepartment(e.getDepartment());
         r.setMonth(p.getMonth());
         r.setYear(p.getYear());
         r.setBasicSalary(p.getBasicSalary());
