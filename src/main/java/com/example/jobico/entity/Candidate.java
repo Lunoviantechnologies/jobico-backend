@@ -10,6 +10,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -18,6 +19,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.Size;
+import org.hibernate.annotations.BatchSize;
 
 @Entity
 @Table(name = "candidates")
@@ -42,10 +44,9 @@ public class Candidate {
     @Size(max = 1500, message = "Description cannot exceed 200 words")
     private String description;
     private String location;
-    
+
     private LocalDateTime appliedAt;
 
-    // Email for communications — separate from mobile login
     private String email;
 
     @Column(nullable = false)
@@ -62,10 +63,15 @@ public class Candidate {
     @Column(nullable = false)
     private CandidateStatus status = CandidateStatus.APPLIED;
 
-    @OneToMany(mappedBy = "candidate", cascade = CascadeType.ALL, orphanRemoval = true)
+    // FetchType.LAZY + @BatchSize prevents MultipleBagFetchException.
+    // Hibernate will load these in batches of 20 using separate SELECT
+    // statements instead of a JOIN FETCH, which is safe with pagination.
+    @OneToMany(mappedBy = "candidate", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @BatchSize(size = 20)
     private List<Education> educationList = new ArrayList<>();
 
-    @OneToMany(mappedBy = "candidate", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "candidate", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @BatchSize(size = 20)
     private List<Skill> skills = new ArrayList<>();
 
     public Long getId() { return id; }
@@ -98,10 +104,10 @@ public class Candidate {
     public void setEducationList(List<Education> educationList) { this.educationList = educationList; }
     public List<Skill> getSkills() { return skills; }
     public void setSkills(List<Skill> skills) { this.skills = skills; }
-	public String getDescription() {return description;}
-	public void setDescription(String description) {this.description = description;}
-	public String getLocation() {return location;}
-	public void setLocation(String location) {this.location = location;}
-	public LocalDateTime getAppliedAt() {return appliedAt;}
-	public void setAppliedAt(LocalDateTime appliedAt) {this.appliedAt = appliedAt;}
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+    public String getLocation() { return location; }
+    public void setLocation(String location) { this.location = location; }
+    public LocalDateTime getAppliedAt() { return appliedAt; }
+    public void setAppliedAt(LocalDateTime appliedAt) { this.appliedAt = appliedAt; }
 }

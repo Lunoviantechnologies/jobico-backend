@@ -6,7 +6,6 @@ import com.example.jobico.entity.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -21,10 +20,12 @@ public interface CandidateRepository extends JpaRepository<Candidate, Long>, Jpa
 
     Optional<Candidate> findByUser(User user);
 
-    @EntityGraph(attributePaths = {"educationList", "skills"})
+    // ── No @EntityGraph here — collections are loaded separately via entity's
+    //    FetchType.LAZY + @BatchSize in the entity (see Candidate.java fix).
+    //    Using @EntityGraph with two List collections + pagination causes
+    //    MultipleBagFetchException and in-memory pagination warnings.
     Page<Candidate> findAll(Pageable pageable);
 
-    @EntityGraph(attributePaths = {"educationList", "skills"})
     Page<Candidate> findAll(Specification<Candidate> spec, Pageable pageable);
 
     @Query("SELECT c FROM Candidate c WHERE LOWER(CONCAT(c.firstName, ' ', c.surname)) LIKE LOWER(CONCAT('%', :name, '%'))")
@@ -55,4 +56,11 @@ public interface CandidateRepository extends JpaRepository<Candidate, Long>, Jpa
            OR LOWER(c.surname) LIKE LOWER(CONCAT('%', :name, '%'))
         """)
     Page<Candidate> searchByFullName(@Param("name") String name, Pageable pageable);
+
+    // Used internally to batch-load collections after pagination
+    @Query("SELECT c FROM Candidate c LEFT JOIN FETCH c.educationList WHERE c.id IN :ids")
+    List<Candidate> fetchEducationByIds(@Param("ids") List<Long> ids);
+
+    @Query("SELECT c FROM Candidate c LEFT JOIN FETCH c.skills WHERE c.id IN :ids")
+    List<Candidate> fetchSkillsByIds(@Param("ids") List<Long> ids);
 }
