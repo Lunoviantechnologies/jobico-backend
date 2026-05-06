@@ -25,4 +25,9 @@ public interface PayrollRepository extends JpaRepository<Payroll, Long>,JpaSpeci
 
     Optional<Payroll> findByEmployeeEmployeeIdAndMonthAndYear(
             String employeeId, int month, int year);
+    @Query("SELECT p FROM Payroll p WHERE p.month = :month AND p.year = :year AND p.employee.id IN :employeeIds")
+    List<Payroll> findByMonthAndYearAndEmployeeIdIn(
+            @Param("month") int month,
+            @Param("year") int year,
+            @Param("employeeIds") List<Long> employeeIds);
 }
