@@ -54,8 +54,12 @@ public class ExcelParsingService {
 
                 try {
                     PayrollRequest req = new PayrollRequest();
-                    req.setEmployeeId((long) getNumericValue(row, 0));
-
+                    Cell idCell = row.getCell(0);
+                    if (idCell == null) continue;
+                    String empIdStr = idCell.getCellType() == CellType.STRING
+                            ? idCell.getStringCellValue().trim()
+                            : String.valueOf((long) idCell.getNumericCellValue());
+                    req.setEmployeeIdStr(empIdStr);
                     if (injectMonthYear) {
                         // FORMAT B — month/year from params, no month/year columns in Excel
                         req.setMonth(month);

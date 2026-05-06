@@ -199,4 +199,58 @@ public class PayrollService {
         r.setPaymentDate(p.getPaymentDate());
         return r;
     }
+    @Transactional
+    public BulkUploadResponse runBulkPayroll(List<PayrollRequest> requests) {
+        List<PayrollResponse> processed = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+
+        // ✅ Collect all empIdStr values first
+        List<String> empIdStrs = requests.stream()
+                .map(PayrollRequest::getEmployeeIdStr)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
+
+        // ✅ Single query instead of one per row
+        Map<String, Employee> employeeMap = employeeRepository
+                .findByEmployeeIdIn(empIdStrs)
+                .stream()
+                .collect(Collectors.toMap(Employee::getEmployeeId, e -> e));
+
+        for (int i = 0; i < requests.size(); i++) {
+            PayrollRequest req = requests.get(i);
+            String empIdStr = req.getEmployeeIdStr();
+            try {
+                if (empIdStr == null || empIdStr.isBlank())
+                    throw new RuntimeException("Employee ID is missing in row " + (i + 2));
+
+                Employee emp = employeeMap.get(empIdStr);
+                if (emp == null)
+                    throw new ResourceNotFoundException(
+                            "Employee ID \"" + empIdStr + "\" not found. "
+                            + "Make sure column A contains the EMP-XXXX code.");
+
+                if (emp.getEmployeeStatus() != EmployeeStatus.ACTIVE)
+                    throw new RuntimeException("Employee " + empIdStr + " is not ACTIVE");
+
+                if (payrollRepository.findByEmployeeIdAndMonthAndYear(
+                        emp.getId(), req.getMonth(), req.getYear()).isPresent())
+                    throw new RuntimeException("Payroll already exists for "
+                            + empIdStr + " — " + req.getMonth() + "/" + req.getYear());
+
+                processed.add(toResponse(payrollRepository.save(buildPayroll(emp, req))));
+
+            } catch (Exception e) {
+                errors.add("Row " + (i + 2) + " (EmpID " + empIdStr + "): " + e.getMessage());
+            }
+        }
+
+        return new BulkUploadResponse(
+                requests.size(),
+                processed.size(),
+                errors.size(),
+                errors,
+                processed
+        );
+    }
 }
