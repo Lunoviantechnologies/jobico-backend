@@ -17,7 +17,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -50,32 +49,18 @@ public class PayrollService {
         List<PayrollResponse> processed = new ArrayList<>();
         List<String> errors = new ArrayList<>();
 
-        if (requests == null || requests.isEmpty())
-            return new BulkUploadResponse(0, 0, 0, errors, processed);
-
-        // ✅ Batch fetch all employees in one query
+        // ✅ Collect all empIdStr values first
         List<String> empIdStrs = requests.stream()
                 .map(PayrollRequest::getEmployeeIdStr)
                 .filter(id -> id != null && !id.isBlank())
                 .distinct()
                 .collect(Collectors.toList());
 
+        // ✅ Single query instead of one per row — fixes N+1
         Map<String, Employee> employeeMap = employeeRepository
                 .findByEmployeeIdIn(empIdStrs)
                 .stream()
                 .collect(Collectors.toMap(Employee::getEmployeeId, e -> e));
-
-        // ✅ Batch fetch existing payrolls for duplicate check — one query
-        int month = requests.get(0).getMonth();
-        int year  = requests.get(0).getYear();
-        List<Long> employeeDbIds = new ArrayList<>(employeeMap.values())
-                .stream().map(Employee::getId).collect(Collectors.toList());
-
-        Set<Long> alreadyProcessed = payrollRepository
-                .findByMonthAndYearAndEmployeeIdIn(month, year, employeeDbIds)
-                .stream()
-                .map(p -> p.getEmployee().getId())
-                .collect(Collectors.toSet());
 
         for (int i = 0; i < requests.size(); i++) {
             PayrollRequest req = requests.get(i);
@@ -87,12 +72,14 @@ public class PayrollService {
                 Employee emp = employeeMap.get(empIdStr);
                 if (emp == null)
                     throw new ResourceNotFoundException(
-                            "Employee ID \"" + empIdStr + "\" not found.");
+                            "Employee ID \"" + empIdStr + "\" not found. "
+                            + "Make sure column A contains the EMP-XXXX code.");
 
                 if (emp.getEmployeeStatus() != EmployeeStatus.ACTIVE)
                     throw new RuntimeException("Employee " + empIdStr + " is not ACTIVE");
 
-                if (alreadyProcessed.contains(emp.getId()))
+                if (payrollRepository.findByEmployeeIdAndMonthAndYear(
+                        emp.getId(), req.getMonth(), req.getYear()).isPresent())
                     throw new RuntimeException("Payroll already exists for "
                             + empIdStr + " — " + req.getMonth() + "/" + req.getYear());
 
@@ -104,7 +91,12 @@ public class PayrollService {
         }
 
         return new BulkUploadResponse(
-                requests.size(), processed.size(), errors.size(), errors, processed);
+                requests.size(),
+                processed.size(),
+                errors.size(),
+                errors,
+                processed
+        );
     }
 
     // ── ALL PAYSLIPS PAGINATED (admin) ────────────────────────────────────────
