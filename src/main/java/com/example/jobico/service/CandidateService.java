@@ -9,7 +9,7 @@ import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.Period;
 import java.util.List;
@@ -22,7 +22,7 @@ public class CandidateService {
     @Autowired private UserRepository userRepository;
     @Autowired private EmailService emailService;
 
-    // ─── Create Profile 
+    // ─── Create Profile ───────────────────────────────────────────────────────
 
     @Transactional
     public CandidateResponse createProfile(String mobile, CandidateRequest request) {
@@ -35,10 +35,10 @@ public class CandidateService {
         Candidate candidate = mapRequestToEntity(new Candidate(), request);
         candidate.setUser(user);
         candidate.setStatus(CandidateStatus.APPLIED);
+        candidate.setAppliedAt(LocalDateTime.now());
 
         CandidateResponse response = mapEntityToResponse(candidateRepository.save(candidate));
 
-        // Send application-received confirmation email
         if (candidate.getEmail() != null && !candidate.getEmail().isBlank()) {
             emailService.sendApplicationReceivedEmail(
                     candidate.getEmail(),
@@ -49,7 +49,8 @@ public class CandidateService {
         return response;
     }
 
-    // ─── Get My Profile
+    // ─── Get My Profile ───────────────────────────────────────────────────────
+
     public CandidateResponse getMyProfile(String mobile) {
         User user = userRepository.findByMobile(mobile)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -58,7 +59,7 @@ public class CandidateService {
         return mapEntityToResponse(candidate);
     }
 
-    // ─── Update Profile 
+    // ─── Update Profile ───────────────────────────────────────────────────────
 
     @Transactional
     public CandidateResponse updateProfile(String mobile, CandidateRequest request) {
@@ -73,7 +74,7 @@ public class CandidateService {
         return mapEntityToResponse(candidateRepository.save(candidate));
     }
 
-    // ─── Delete Profile 
+    // ─── Delete Profile ───────────────────────────────────────────────────────
 
     @Transactional
     public void deleteProfile(String mobile) {
@@ -84,21 +85,21 @@ public class CandidateService {
         candidateRepository.delete(candidate);
     }
 
-    // ─── Get By ID (admin)
+    // ─── Get By ID (admin) ────────────────────────────────────────────────────
 
     public CandidateResponse getById(Long id) {
         return mapEntityToResponse(candidateRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Candidate not found: " + id)));
     }
 
-    // ─── Get All Paginated (admin)
+    // ─── Get All Paginated (admin) ────────────────────────────────────────────
 
     public Page<CandidateResponse> getAll(int page, int size) {
         return candidateRepository.findAll(PageRequest.of(page, size, Sort.by("id").descending()))
                 .map(this::mapEntityToResponse);
     }
 
-    // ─── Search & Filter (admin)
+    // ─── Search & Filter (admin) ──────────────────────────────────────────────
 
     public Page<CandidateResponse> searchByName(String name, int page, int size) {
         return candidateRepository.searchByName(name, PageRequest.of(page, size))
@@ -130,7 +131,7 @@ public class CandidateService {
                 .map(this::mapEntityToResponse);
     }
 
-    // ─── Update Status (admin) 
+    // ─── Update Status (admin) ────────────────────────────────────────────────
 
     @Transactional
     public CandidateResponse updateStatus(Long candidateId, CandidateStatus newStatus) {
@@ -139,26 +140,23 @@ public class CandidateService {
         candidate.setStatus(newStatus);
         CandidateResponse response = mapEntityToResponse(candidateRepository.save(candidate));
 
-        // Send status-change email if candidate has an email
         String email = candidate.getEmail();
         String name  = candidate.getFirstName() + " " + candidate.getSurname();
         String role  = candidate.getRole();
 
         if (email != null && !email.isBlank()) {
             switch (newStatus) {
-                case SHORTLISTED           -> emailService.sendShortlistedEmail(email, name, role);
-                case SELECTED              -> emailService.sendSelectedEmail(email, name, role);
-                case REJECTED              -> emailService.sendRejectedEmail(email, name, role);
-                case OFFER_LETTER_GENERATED,
-                     ONBOARDED             -> { }
-                default                    -> {  }
+                case SHORTLISTED -> emailService.sendShortlistedEmail(email, name, role);
+                case SELECTED    -> emailService.sendSelectedEmail(email, name, role);
+                case REJECTED    -> emailService.sendRejectedEmail(email, name, role);
+                default          -> { }
             }
         }
 
         return response;
     }
 
-    // ─── Resume
+    // ─── Resume ───────────────────────────────────────────────────────────────
 
     @Transactional
     public void updateResumePath(String mobile, String resumePath) {
@@ -178,7 +176,47 @@ public class CandidateService {
         return candidate.getResumePath();
     }
 
-    // ─── Mapper:
+    // ─── Search + Filter Combined (admin dashboard) ───────────────────────────
+
+    public Page<CandidateResponse> getCandidates(
+            String search,
+            String status,
+            String category,
+            int page,
+            int size) {
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
+        Specification<Candidate> spec = Specification.where(null);
+
+        if (search != null && !search.isBlank()) {
+            spec = spec.and((root, query, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("firstName")), "%" + search.toLowerCase() + "%"),
+                    cb.like(cb.lower(root.get("surname")),   "%" + search.toLowerCase() + "%"),
+                    cb.like(cb.lower(root.get("email")),     "%" + search.toLowerCase() + "%"),
+                    cb.like(cb.lower(root.get("role")),      "%" + search.toLowerCase() + "%")
+            ));
+        }
+
+        if (status != null && !status.isBlank()) {
+            try {
+                CandidateStatus candidateStatus = CandidateStatus.valueOf(status.toUpperCase());
+                spec = spec.and((root, query, cb) ->
+                        cb.equal(root.get("status"), candidateStatus));
+            } catch (IllegalArgumentException e) {
+                throw new RuntimeException("Invalid status value: " + status);
+            }
+        }
+
+        if (category != null && !category.isBlank()) {
+            spec = spec.and((root, query, cb) ->
+                    cb.equal(root.get("category"), category));
+        }
+
+        return candidateRepository.findAll(spec, pageable)
+                .map(this::mapEntityToResponse);
+    }
+
+    // ─── Mapper: Request → Entity ─────────────────────────────────────────────
 
     private Candidate mapRequestToEntity(Candidate candidate, CandidateRequest request) {
         candidate.setFirstName(request.getFirstName());
@@ -190,6 +228,8 @@ public class CandidateService {
         candidate.setRole(request.getRole());
         candidate.setExperience(request.getExperience());
         candidate.setWorkType(request.getWorkType());
+        candidate.setLocation(request.getLocation());
+        candidate.setDescription(request.getDescription());
 
         if (request.getEducationList() != null) {
             List<Education> educationList = request.getEducationList().stream().map(dto -> {
@@ -218,7 +258,7 @@ public class CandidateService {
         return candidate;
     }
 
-    // ─── Mapper
+    // ─── Mapper: Entity → Response ────────────────────────────────────────────
 
     public CandidateResponse mapEntityToResponse(Candidate candidate) {
         CandidateResponse response = new CandidateResponse();
@@ -264,45 +304,10 @@ public class CandidateService {
         return response;
     }
 
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
     private int calculateAge(LocalDate dob) {
         if (dob == null) return 0;
         return Period.between(dob, LocalDate.now()).getYears();
-    }
-    public Page<CandidateResponse> getCandidates(
-        String search,
-        String status,
-        String category,
-        int page,
-        int size) {
-
-    Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
-    Specification<Candidate> spec = Specification.where(null);
-
-    //  SEARCH 
-    if (search != null && !search.isBlank()) {
-        spec = spec.and((root, query, cb) -> cb.or(
-                cb.like(cb.lower(root.get("firstName")), "%" + search.toLowerCase() + "%"),
-                cb.like(cb.lower(root.get("surname")), "%" + search.toLowerCase() + "%"),
-                cb.like(cb.lower(root.get("email")), "%" + search.toLowerCase() + "%"),
-                cb.like(cb.lower(root.get("role")), "%" + search.toLowerCase() + "%")
-        ));
-    }
-
-    // STATUS FILTER
-    if (status != null && !status.isBlank()) {
-        spec = spec.and((root, query, cb) ->
-                cb.equal(root.get("status"), CandidateStatus.valueOf(status))
-        );
-    }
-
-    // CATEGORY FILTER
-    if (category != null && !category.isBlank()) {
-        spec = spec.and((root, query, cb) ->
-                cb.equal(root.get("category"), category)
-        );
-    }
-
-    return candidateRepository.findAll(spec, pageable)
-            .map(this::mapEntityToResponse);
     }
 }

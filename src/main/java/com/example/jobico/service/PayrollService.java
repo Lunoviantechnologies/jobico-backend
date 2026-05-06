@@ -186,7 +186,7 @@ public class PayrollService {
         r.setEmployeeId(e.getEmployeeId());
         r.setEmployeeName(c != null
                 ? c.getFirstName() + " " + c.getSurname()
-                : "Unknown");          // ✅ FIX: null-safe candidate
+                : "Unknown");          
         r.setDepartment(e.getDepartment());
         r.setMonth(p.getMonth());
         r.setYear(p.getYear());

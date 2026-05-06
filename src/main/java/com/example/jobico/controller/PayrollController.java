@@ -39,14 +39,29 @@ public class PayrollController {
     }
 
     /**
+     * POST /api/admin/payroll/run/bulk
+     * Run payroll for multiple employees via JSON list.
+     */
+    @PostMapping("/api/admin/payroll/run/bulk")
+    public ResponseEntity<BulkUploadResponse> runBulkPayroll(
+            @Valid @RequestBody List<PayrollRequest> requests) {
+        if (requests == null || requests.isEmpty())
+            return ResponseEntity.badRequest().build();
+        return ResponseEntity.ok(payrollService.runBulkPayroll(requests));
+    }
+
+    /**
      * POST /api/admin/payroll/upload
-     * Upload Excel -> auto-generate payrolls for ALL rows.
+     * Upload Excel -> auto-generate payrolls.
      *
-     * Excel format: | employeeId | month | year | basicSalary | hra | allowances | deductions |
+     * With month & year params → Excel needs: employeeId, basicSalary, hra, allowances, deductions
+     * Without params           → Excel needs: employeeId, month, year, basicSalary, hra, allowances, deductions
      */
     @PostMapping(value = "/api/admin/payroll/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<BulkUploadResponse> uploadPayrollExcel(
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) Integer month,
+            @RequestParam(required = false) Integer year) {
         try {
             if (file.isEmpty())
                 return ResponseEntity.badRequest().build();
@@ -55,10 +70,13 @@ public class PayrollController {
             if (filename == null || (!filename.endsWith(".xlsx") && !filename.endsWith(".xls")))
                 return ResponseEntity.badRequest().build();
 
-            List<PayrollRequest> rows = excelParsingService.parsePayrollExcel(file);
-            BulkUploadResponse result = payrollService.runBulkPayroll(rows);
+            List<PayrollRequest> rows = excelParsingService.parsePayrollExcel(
+                    file,
+                    month != null ? month : 0,
+                    year  != null ? year  : 0
+            );
 
-            return ResponseEntity.ok(result);
+            return ResponseEntity.ok(payrollService.runBulkPayroll(rows));
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -117,12 +135,10 @@ public class PayrollController {
 
     // ═══════════════════════════════════════════════════════════════════
     //  EMPLOYEE ENDPOINTS — /api/employee/**
-    //  Security: employees see ONLY their own data (enforced by service layer)
     // ═══════════════════════════════════════════════════════════════════
 
     /**
      * GET /api/employee/payroll/my-payslips
-     * Returns all payslips belonging to the authenticated employee.
      */
     @GetMapping("/api/employee/payroll/my-payslips")
     public ResponseEntity<List<PayrollResponse>> getMyPayslips(Authentication auth) {
@@ -132,16 +148,12 @@ public class PayrollController {
 
     /**
      * GET /api/employee/payroll/my-payslips/{payrollId}/download
-     * Download the authenticated employee's specific payslip PDF.
-     * Service validates ownership - an employee CANNOT download another's payslip.
      */
     @GetMapping("/api/employee/payroll/my-payslips/{payrollId}/download")
     public ResponseEntity<byte[]> downloadMyPayslip(
             @PathVariable Long payrollId, Authentication auth) {
         try {
             Long employeeId = resolveEmployeeId(auth);
-
-            // Ownership check happens inside service - throws if mismatch
             PayrollResponse payroll = payrollService.getPayrollByIdForEmployee(payrollId, employeeId);
             byte[] pdf = payslipPdfService.generatePayslipPdf(payroll);
 
@@ -153,7 +165,6 @@ public class PayrollController {
                     .body(pdf);
 
         } catch (RuntimeException e) {
-            // 403 when ownership check fails
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -162,19 +173,11 @@ public class PayrollController {
 
     /**
      * GET /api/employee/my-experience-letter
-     * Download the authenticated employee's most recently generated experience letter.
-     *
-     * FIX: Previously called documentService.generateExperienceLetter() which does not
-     * exist and would have caused a compilation error. The correct behaviour is to fetch
-     * the letter that HR already generated via the admin panel - not auto-create a new one.
-     * Returns 404 if HR has not yet issued a letter for this employee.
      */
     @GetMapping("/api/employee/my-experience-letter")
     public ResponseEntity<byte[]> downloadMyExperienceLetter(Authentication auth) {
         try {
             Employee emp = resolveEmployee(auth);
-
-            // FIX: load the stored letter HR already generated; never auto-create a new one
             byte[] pdf = documentService.downloadLatestExperienceLetterForEmployee(emp.getId());
 
             String firstName = (emp.getCandidate() != null && emp.getCandidate().getFirstName() != null)
@@ -188,13 +191,10 @@ public class PayrollController {
                     .body(pdf);
 
         } catch (ResourceNotFoundException e) {
-            // No letter generated by HR yet - tell the frontend to show a "contact HR" message
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         } catch (IllegalArgumentException e) {
-            // Employee record not found for this user account
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         } catch (RuntimeException e) {
-            // Authorization failure
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -205,10 +205,6 @@ public class PayrollController {
     //  PRIVATE HELPERS
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Resolves the full Employee entity from the authenticated user's mobile number.
-     * Centralised so no endpoint needs to touch employeeRepository directly.
-     */
     private Employee resolveEmployee(Authentication auth) {
         String mobile = auth.getName();
         return employeeRepository.findByUserMobile(mobile)
@@ -216,7 +212,6 @@ public class PayrollController {
                         "No employee record linked to account: " + mobile));
     }
 
-    /** Convenience wrapper - returns only the employee ID. */
     private Long resolveEmployeeId(Authentication auth) {
         return resolveEmployee(auth).getId();
     }
