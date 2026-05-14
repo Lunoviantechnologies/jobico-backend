@@ -3,3 +3,6 @@
 .classpath
 .factorypath
 target/
+
+# Local overrides (secrets) — not committed
+application-local.properties

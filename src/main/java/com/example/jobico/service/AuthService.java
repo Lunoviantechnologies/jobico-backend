@@ -7,6 +7,8 @@ import com.example.jobico.exception.UnauthorizedException;
 import com.example.jobico.repository.*;
 import com.example.jobico.security.JwtUtil;
 import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,6 +24,8 @@ import java.util.UUID;
  */
 @Service
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     @Autowired private UserRepository userRepository;
     @Autowired private AdminRepository adminRepository;
@@ -61,7 +65,9 @@ public class AuthService {
     // ── USER: OTP Login ───────────────────────────────────────────────────────
 
     public void sendOtp(OtpRequest request) {
+        log.info("AuthService: sending OTP mobile={}", request.getMobile());
         otpService.generateOtp(request.getMobile());
+        log.info("AuthService: OTP generated mobile={}", request.getMobile());
     }
 
     public AuthResponse verifyOtpAndLogin(OtpVerifyRequest request) {
