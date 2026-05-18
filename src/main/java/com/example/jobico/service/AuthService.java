@@ -6,208 +6,476 @@ import com.example.jobico.exception.ResourceNotFoundException;
 import com.example.jobico.exception.UnauthorizedException;
 import com.example.jobico.repository.*;
 import com.example.jobico.security.JwtUtil;
-import jakarta.annotation.PostConstruct;
+
+import jakarta.transaction.Transactional;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * FULL REPLACEMENT for AuthService.
- * Adds: adminRegister() method.
- */
 @Service
 public class AuthService {
 
-    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+    private static final Logger log =
+            LoggerFactory.getLogger(AuthService.class);
 
-    @Autowired private UserRepository userRepository;
-    @Autowired private AdminRepository adminRepository;
-    @Autowired private PasswordResetTokenRepository tokenRepository;
-    @Autowired private JwtUtil jwtUtil;
-    @Autowired private OtpService otpService;
-    @Autowired private EmailService emailService;
-    @Autowired private PasswordEncoder passwordEncoder;
-    @Autowired private AdminProfileRepository adminProfileRepository;
-    @Autowired private EmployeeRepository employeeRepository;
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private AdminRepository adminRepository;
+
+    @Autowired
+    private PasswordResetTokenRepository tokenRepository;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Autowired
+    private OtpService otpService;
+
+    @Autowired
+    private SmsLoginService smsLoginService;
+
+    @Autowired
+    private EmailService emailService;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private AdminProfileRepository adminProfileRepository;
+
+    @Autowired
+    private EmployeeRepository employeeRepository;
 
     @Value("${app.base-url:http://localhost:8081}")
     private String baseUrl;
 
-    /**
-     * Secret key required when registering a new admin account.
-     * Set in application.properties: app.admin-secret-key=JOBICO_ADMIN_2024
-     */
     @Value("${app.admin-secret-key:JOBICO_ADMIN_2024}")
     private String adminSecretKey;
 
-    /**
-     * Creates a default admin (admin@jobico.com / admin@123) on first run
-     * if no admin exists yet. Safe to leave in production — only runs once.
-     */
-//    @PostConstruct
-//    public void seedDefaultAdmin() {
-//        if (!adminRepository.existsByEmail("admin@jobico.com")) {
-//            Admin admin = new Admin();
-//            admin.setEmail("admin@jobico.com");
-//            admin.setPassword(passwordEncoder.encode("admin@123"));
-//            adminRepository.save(admin);
-//            System.out.println("[Jobico] Default admin seeded: admin@jobico.com / admin@123");
-//        }
-//    }
-
-    // ── USER: OTP Login ───────────────────────────────────────────────────────
+    // =========================================================================
+    // USER : SEND OTP
+    // =========================================================================
 
     public void sendOtp(OtpRequest request) {
-        log.info("AuthService: sending OTP mobile={}", request.getMobile());
-        otpService.generateOtp(request.getMobile());
-        log.info("AuthService: OTP generated mobile={}", request.getMobile());
+
+        log.info(
+                "AuthService: sending OTP mobile={}",
+                request.getMobile()
+        );
+
+        // CHECK MOBILE REGISTERED OR NOT
+
+        User user = userRepository
+                .findByMobile(request.getMobile())
+                .orElseThrow(() ->
+                        new RuntimeException(
+                                "Mobile number not registered."
+                        )
+                );
+
+        // GENERATE OTP
+
+        String otp = otpService.generateOtp(
+                request.getMobile()
+        );
+
+        // SEND OTP SMS
+
+        smsLoginService.sendOtp(
+                request.getMobile(),
+                otp
+        );
+
+        log.info(
+                "AuthService: OTP sent successfully mobile={}",
+                request.getMobile()
+        );
     }
 
-    public AuthResponse verifyOtpAndLogin(OtpVerifyRequest request) {
-        boolean valid = otpService.verifyOtp(request.getMobile(), request.getOtp());
-        if (!valid) throw new RuntimeException("Invalid or expired OTP.");
+    // =========================================================================
+    // USER : VERIFY OTP LOGIN
+    // =========================================================================
 
-        boolean isNew = !userRepository.existsByMobile(request.getMobile());
-        User user;
+    public AuthResponse verifyOtpAndLogin(
+            OtpVerifyRequest request
+    ) {
 
-        if (isNew) {
-            user = new User();
-            user.setMobile(request.getMobile());
-            user.setRole("ROLE_USER");
-            user.setNewUser(true);
-            userRepository.save(user);
-        } else {
-            user = userRepository.findByMobile(request.getMobile())
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-            if (user.isNewUser()) {
-                user.setNewUser(false);
-                userRepository.save(user);
-            }
+        // VERIFY OTP
+
+        boolean valid = otpService.verifyOtp(
+                request.getMobile(),
+                request.getOtp()
+        );
+
+        if (!valid) {
+
+            throw new RuntimeException(
+                    "Invalid or expired OTP."
+            );
         }
 
-        // ✅ Check if this user is an onboarded employee
-        boolean isEmployee = employeeRepository.findByUserMobile(request.getMobile()).isPresent();
+        // FETCH REGISTERED USER
 
-        String token = jwtUtil.generateToken(user.getMobile(), user.getMobile(), user.getId(), user.getRole());
-        AuthResponse response = new AuthResponse(token, user.getId(), null, user.getMobile(), user.getRole(), isNew);
-        response.setEmployee(isEmployee);  
+        User user = userRepository
+                .findByMobile(request.getMobile())
+                .orElseThrow(() ->
+                        new RuntimeException(
+                                "User not found."
+                        )
+                );
+
+        // CHECK FIRST LOGIN
+
+        boolean isNew = user.isNewUser();
+
+        if (user.isNewUser()) {
+
+            user.setNewUser(false);
+
+            userRepository.save(user);
+        }
+
+        // CHECK EMPLOYEE
+
+        boolean isEmployee =
+                employeeRepository
+                        .findByUserMobile(
+                                request.getMobile()
+                        )
+                        .isPresent();
+
+        // GENERATE JWT TOKEN
+
+        String token = jwtUtil.generateToken(
+                user.getMobile(),
+                user.getMobile(),
+                user.getId(),
+                user.getRole()
+        );
+
+        // RESPONSE
+
+        AuthResponse response = new AuthResponse(
+                token,
+                user.getId(),
+                null,
+                user.getMobile(),
+                user.getRole(),
+                isNew
+        );
+
+        response.setEmployee(isEmployee);
+
         return response;
     }
 
-    // ── ADMIN: Register (NEW) 
+    // =========================================================================
+    // ADMIN : REGISTER
+    // =========================================================================
 
     @Transactional
-    public AuthResponse adminRegister(AdminRegisterRequest request) {
+    public AuthResponse adminRegister(
+            AdminRegisterRequest request
+    ) {
 
-        if (!adminSecretKey.equals(request.getAdminSecretKey()))
-            throw new RuntimeException("Invalid admin secret key.");
+        if (!adminSecretKey.equals(
+                request.getAdminSecretKey()
+        )) {
 
-        if (adminRepository.existsByEmail(request.getEmail()))
-            throw new RuntimeException("An admin with this email already exists.");
+            throw new RuntimeException(
+                    "Invalid admin secret key."
+            );
+        }
+
+        if (adminRepository.existsByEmail(
+                request.getEmail()
+        )) {
+
+            throw new RuntimeException(
+                    "An admin with this email already exists."
+            );
+        }
 
         Admin admin = new Admin();
+
         admin.setEmail(request.getEmail());
-        admin.setPassword(passwordEncoder.encode(request.getPassword()));
+
+        admin.setPassword(
+                passwordEncoder.encode(
+                        request.getPassword()
+                )
+        );
+
         adminRepository.save(admin);
 
-        AdminProfile profile = adminProfileRepository.findByAdmin(admin).orElse(null);
+        AdminProfile profile =
+                adminProfileRepository
+                        .findByAdmin(admin)
+                        .orElse(null);
 
-        String name = (profile != null && profile.getName() != null) ? profile.getName() : admin.getEmail();
+        String name =
+                (profile != null
+                        && profile.getName() != null)
 
-        String token = jwtUtil.generateToken( admin.getEmail(), name,admin.getId(), "ROLE_ADMIN");
-        return new AuthResponse(token,admin.getId(),admin.getEmail(), null,"ROLE_ADMIN",false);
+                        ? profile.getName()
+
+                        : admin.getEmail();
+
+        String token = jwtUtil.generateToken(
+                admin.getEmail(),
+                name,
+                admin.getId(),
+                "ROLE_ADMIN"
+        );
+
+        return new AuthResponse(
+                token,
+                admin.getId(),
+                admin.getEmail(),
+                null,
+                "ROLE_ADMIN",
+                false
+        );
     }
 
-    // ── ADMIN: Login 
-    public AuthResponse adminLogin(AdminLoginRequest request) {
-        Admin admin = adminRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("Invalid email or password."));
+    // =========================================================================
+    // ADMIN : LOGIN
+    // =========================================================================
 
-        if (!passwordEncoder.matches(request.getPassword(), admin.getPassword()))
-            throw new UnauthorizedException("Invalid email or password.");
-        AdminProfile profile = adminProfileRepository.findByAdmin(admin).orElse(null);
+    public AuthResponse adminLogin(
+            AdminLoginRequest request
+    ) {
 
-        String name = (profile != null && profile.getName() != null) ? profile.getName() : admin.getEmail();
+        Admin admin = adminRepository
+                .findByEmail(request.getEmail())
+                .orElseThrow(
+                        () -> new RuntimeException(
+                                "Invalid email or password."
+                        )
+                );
 
-        String token = jwtUtil.generateToken(admin.getEmail(),name,admin.getId(), "ROLE_ADMIN");
+        if (!passwordEncoder.matches(
+                request.getPassword(),
+                admin.getPassword()
+        )) {
 
-        return new AuthResponse(token, admin.getId(), admin.getEmail(), null, "ROLE_ADMIN", false);
+            throw new UnauthorizedException(
+                    "Invalid email or password."
+            );
+        }
+
+        AdminProfile profile =
+                adminProfileRepository
+                        .findByAdmin(admin)
+                        .orElse(null);
+
+        String name =
+                (profile != null
+                        && profile.getName() != null)
+
+                        ? profile.getName()
+
+                        : admin.getEmail();
+
+        String token = jwtUtil.generateToken(
+                admin.getEmail(),
+                name,
+                admin.getId(),
+                "ROLE_ADMIN"
+        );
+
+        return new AuthResponse(
+                token,
+                admin.getId(),
+                admin.getEmail(),
+                null,
+                "ROLE_ADMIN",
+                false
+        );
     }
 
-    // ADMIN: Forgot Password
+    // =========================================================================
+    // ADMIN : FORGOT PASSWORD
+    // =========================================================================
+
     @Transactional
-    public String forgotPassword(ForgotPasswordRequest request) {
-        Admin admin = adminRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException("No admin found with this email."));
+    public String forgotPassword(
+            ForgotPasswordRequest request
+    ) {
+
+        Admin admin = adminRepository
+                .findByEmail(request.getEmail())
+                .orElseThrow(
+                        () -> new ResourceNotFoundException(
+                                "No admin found with this email."
+                        )
+                );
 
         tokenRepository.deleteByAdminId(admin.getId());
 
         String rawToken = UUID.randomUUID().toString();
-        PasswordResetToken resetToken = new PasswordResetToken();
+
+        PasswordResetToken resetToken =
+                new PasswordResetToken();
+
         resetToken.setToken(rawToken);
+
         resetToken.setAdmin(admin);
-        resetToken.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+
+        resetToken.setExpiresAt(
+                LocalDateTime.now().plusMinutes(15)
+        );
+
         resetToken.setUsed(false);
+
         tokenRepository.save(resetToken);
 
-        String resetLink = baseUrl + "/api/auth/admin/reset-password?token=" + rawToken;
-        emailService.sendPasswordResetEmail(admin.getEmail(), resetLink);
+        String resetLink =
+                baseUrl
+                        + "/api/auth/admin/reset-password?token="
+                        + rawToken;
 
-        return "Password reset link sent to " + admin.getEmail();
+        emailService.sendPasswordResetEmail(
+                admin.getEmail(),
+                resetLink
+        );
+
+        return "Password reset link sent to "
+                + admin.getEmail();
     }
 
-  
+    // =========================================================================
+    // ADMIN : RESET PASSWORD
+    // =========================================================================
+
     @Transactional
-    public String resetPassword(ResetPasswordRequest request) {
-        if (!request.getNewPassword().equals(request.getConfirmPassword()))
-            throw new RuntimeException("Passwords do not match.");
+    public String resetPassword(
+            ResetPasswordRequest request
+    ) {
 
-        PasswordResetToken resetToken = tokenRepository.findByToken(request.getToken())
-                .orElseThrow(() -> new RuntimeException("Invalid or expired token."));
+        if (!request.getNewPassword().equals(
+                request.getConfirmPassword()
+        )) {
 
-        if (resetToken.isUsed())
-            throw new RuntimeException("Token already used.");
-        if (resetToken.getExpiresAt().isBefore(LocalDateTime.now()))
-            throw new RuntimeException("Token expired.");
+            throw new RuntimeException(
+                    "Passwords do not match."
+            );
+        }
+
+        PasswordResetToken resetToken =
+                tokenRepository.findByToken(
+                        request.getToken()
+                ).orElseThrow(
+                        () -> new RuntimeException(
+                                "Invalid or expired token."
+                        )
+                );
+
+        if (resetToken.isUsed()) {
+
+            throw new RuntimeException(
+                    "Token already used."
+            );
+        }
+
+        if (resetToken.getExpiresAt()
+                .isBefore(LocalDateTime.now())) {
+
+            throw new RuntimeException(
+                    "Token expired."
+            );
+        }
 
         Admin admin = resetToken.getAdmin();
-        admin.setPassword(passwordEncoder.encode(request.getNewPassword()));
+
+        admin.setPassword(
+                passwordEncoder.encode(
+                        request.getNewPassword()
+                )
+        );
+
         adminRepository.save(admin);
 
         resetToken.setUsed(true);
+
         tokenRepository.save(resetToken);
 
-        emailService.sendPasswordChangedEmail(admin.getEmail());
+        emailService.sendPasswordChangedEmail(
+                admin.getEmail()
+        );
+
         return "Password reset successful.";
     }
 
-    // ── ADMIN: Update Password ────────────────────────────────────────────────
+    // =========================================================================
+    // ADMIN : UPDATE PASSWORD
+    // =========================================================================
 
     @Transactional
-    public String updatePassword(String email, UpdatePasswordRequest request) {
-        if (!request.getNewPassword().equals(request.getConfirmPassword()))
-            throw new RuntimeException("Passwords do not match.");
+    public String updatePassword(
+            String email,
+            UpdatePasswordRequest request
+    ) {
 
-        Admin admin = adminRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Admin not found."));
+        if (!request.getNewPassword().equals(
+                request.getConfirmPassword()
+        )) {
 
-        if (!passwordEncoder.matches(request.getCurrentPassword(), admin.getPassword()))
-            throw new RuntimeException("Current password incorrect.");
+            throw new RuntimeException(
+                    "Passwords do not match."
+            );
+        }
 
-        if (passwordEncoder.matches(request.getNewPassword(), admin.getPassword()))
-            throw new RuntimeException("New password must be different.");
+        Admin admin = adminRepository
+                .findByEmail(email)
+                .orElseThrow(
+                        () -> new ResourceNotFoundException(
+                                "Admin not found."
+                        )
+                );
 
-        admin.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        if (!passwordEncoder.matches(
+                request.getCurrentPassword(),
+                admin.getPassword()
+        )) {
+
+            throw new RuntimeException(
+                    "Current password incorrect."
+            );
+        }
+
+        if (passwordEncoder.matches(
+                request.getNewPassword(),
+                admin.getPassword()
+        )) {
+
+            throw new RuntimeException(
+                    "New password must be different."
+            );
+        }
+
+        admin.setPassword(
+                passwordEncoder.encode(
+                        request.getNewPassword()
+                )
+        );
+
         adminRepository.save(admin);
 
-        emailService.sendPasswordChangedEmail(admin.getEmail());
+        emailService.sendPasswordChangedEmail(
+                admin.getEmail()
+        );
+
         return "Password updated successfully.";
     }
 }
