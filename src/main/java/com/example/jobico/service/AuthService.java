@@ -42,9 +42,6 @@ public class AuthService {
     private OtpService otpService;
 
     @Autowired
-    private SmsLoginService smsLoginService;
-
-    @Autowired
     private EmailService emailService;
 
     @Autowired
@@ -73,31 +70,11 @@ public class AuthService {
                 request.getMobile()
         );
 
-        // CHECK MOBILE REGISTERED OR NOT
-
-        User user = userRepository
-                .findByMobile(request.getMobile())
-                .orElseThrow(() ->
-                        new RuntimeException(
-                                "Mobile number not registered."
-                        )
-                );
-
-        // GENERATE OTP
-
-        String otp = otpService.generateOtp(
-                request.getMobile()
-        );
-
-        // SEND OTP SMS
-
-        smsLoginService.sendOtp(
-                request.getMobile(),
-                otp
-        );
+        // Generates OTP and sends SMS once (when otp.sms.enabled=true)
+        otpService.generateOtp(request.getMobile());
 
         log.info(
-                "AuthService: OTP sent successfully mobile={}",
+                "AuthService: OTP flow completed mobile={}",
                 request.getMobile()
         );
     }

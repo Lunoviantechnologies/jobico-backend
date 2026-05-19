@@ -49,11 +49,13 @@ public class SmsLoginService {
                             "UTF-8"
                     );
 
+            String mobileParam = mobile.startsWith("91") ? mobile : "91" + mobile;
+
             String apiUrl =
                     "https://smslogin.co/v3/api.php?"
                             + "username=" + username
                             + "&apikey=" + apiKey
-                            + "&mobile=" + mobile
+                            + "&mobile=" + mobileParam
                             + "&senderid=" + senderId
                             + "&message=" + encodedMessage
                             + "&templateid=" + templateId;
@@ -93,10 +95,14 @@ public class SmsLoginService {
 
             in.close();
 
-            log.info(
-                    "SMS Response : {}",
-                    response
-            );
+            String body = response.toString();
+            log.info("SMS Response : {}", body);
+
+            if (body.contains("Error") || body.contains("error")) {
+                throw new RuntimeException(
+                        "SMS gateway rejected request: " + body
+                );
+            }
 
             connection.disconnect();
 
